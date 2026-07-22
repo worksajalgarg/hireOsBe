@@ -20,9 +20,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: platform/package-lock.json
       - run: npm ci
-      - run: npm run typecheck
-      - run: npm run lint
       - name: Generate Prisma client
+        # Must run before typecheck/lint/build — @prisma/client has no
+        # generated types (PrismaClient, model properties, etc.) until this
+        # runs, so tsc fails with "no exported member" otherwise.
+        #
         # prisma.config.ts is always discovered when running from this cwd,
         # and its env("DATABASE_URL") call is evaluated at config-load time
         # even for `generate` (which itself doesn't need connectivity) — so
@@ -30,6 +32,8 @@ jobs:
         run: npx prisma generate
         env:
           DATABASE_URL: "postgresql://platform:platform@localhost:5432/platform?schema=public"
+      - run: npm run typecheck
+      - run: npm run lint
       - run: npm run test
       - run: npm run build
 

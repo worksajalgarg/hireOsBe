@@ -22,7 +22,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"   # host 6380 -> container 6379; host already runs a native redis-server on 6379
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

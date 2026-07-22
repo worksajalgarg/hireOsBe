@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "infra: up",
+      "type": "shell",
+      "command": "docker compose -f infra/docker-compose.yml up -d",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "infra: down",
+      "type": "shell",
+      "command": "docker compose -f infra/docker-compose.yml down",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": []
+    },
+    {
+      "label": "build: platform",
+      "type": "shell",
+      "command": "npm run build",
+      "options": { "cwd": "${workspaceFolder}/platform" },
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Platform (NestJS)",
+      "type": "node",
+      "request": "launch",
+      "preLaunchTask": "build: platform",
+      "program": "${workspaceFolder}/platform/dist/main.js",
+      "cwd": "${workspaceFolder}/platform",
+      "envFile": "${workspaceFolder}/platform/.env",
+      "outFiles": ["${workspaceFolder}/platform/dist/**/*.js"],
+      "sourceMaps": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "name": "AI Service (FastAPI)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["app.main:app", "--reload", "--port", "8000"],
+      "cwd": "${workspaceFolder}/ai-service",
+      "python": "${workspaceFolder}/ai-service/.venv/bin/python",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Launch All (Backend)",
+      "preLaunchTask": "infra: up",
+      "configurations": ["Platform (NestJS)", "AI Service (FastAPI)"],
+      "stopAll": true
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: the connection URL is no longer read from this file at runtime.
+// Migrate/introspection get it from prisma.config.ts; PrismaClient gets it
+// via a driver adapter (see common/prisma.service.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  RECRUITER
+  HIRING_MANAGER
+  ADMIN
+  AUDITOR
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  domain    String   @unique
+  createdAt DateTime @default(now())
+
+  users       User[]
+  auditEvents AuditEvent[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  tenantId  String
+  email     String
+  role      UserRole
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+/// Append-only. No application code should ever issue an UPDATE or DELETE
+/// against this table — enforce that with a database role grant when a real
+/// Postgres instance is provisioned (see docs/threat-model.md).
+model AuditEvent {
+  id         String   @id @default(uuid())
+  tenantId   String
+  actorId    String
+  eventType  String
+  entityType String
+  entityId   String
+  payload    Json
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_events")
+}

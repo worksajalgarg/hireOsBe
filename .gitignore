@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+*.log
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+coverage/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+tsconfig.tsbuildinfo

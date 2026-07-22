@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  platform:
+    name: Platform (NestJS)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: platform/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Generate Prisma client
+        # prisma.config.ts is always discovered when running from this cwd,
+        # and its env("DATABASE_URL") call is evaluated at config-load time
+        # even for `generate` (which itself doesn't need connectivity) — so
+        # a value must be set even though CI never connects to a real DB here.
+        run: npx prisma generate
+        env:
+          DATABASE_URL: "postgresql://platform:platform@localhost:5432/platform?schema=public"
+      - run: npm run test
+      - run: npm run build
+
+  ai-service:
+    name: AI service (FastAPI)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: ai-service/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check app tests
+      - run: pytest -q
+
+  security-baseline:
+    name: Dependency security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: platform/package-lock.json
+      - working-directory: platform
+        run: npm ci
+      - name: npm audit (high/critical)
+        working-directory: platform
+        run: npm audit --audit-level=high
+        continue-on-error: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pip-audit
+      - name: pip-audit (ai-service)
+        working-directory: ai-service
+        run: pip-audit -r requirements.txt

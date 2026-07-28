@@ -7,6 +7,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import * as argon2 from "argon2";
 import {
+  PERMISSION_META,
+  PERMISSIONS,
   SYSTEM_ROLE_NAMES,
   SYSTEM_ROLE_PERMISSIONS,
 } from "../src/common/permissions";
@@ -14,6 +16,17 @@ import {
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
 });
+
+async function seedPermissions() {
+  for (const slug of Object.values(PERMISSIONS)) {
+    const meta = PERMISSION_META[slug];
+    await prisma.permission.upsert({
+      where: { slug },
+      create: { slug, module: meta.module, description: meta.description },
+      update: { module: meta.module, description: meta.description },
+    });
+  }
+}
 
 async function seedSystemRoles(tenantId: string) {
   const permissions = await prisma.permission.findMany();
@@ -46,6 +59,8 @@ async function seedSystemRoles(tenantId: string) {
 async function main() {
   const email = (process.env.SEED_ADMIN_EMAIL ?? "admin@hireos.local").toLowerCase();
   const password = process.env.SEED_ADMIN_PASSWORD ?? "Password123!";
+
+  await seedPermissions();
 
   const tenant = await prisma.tenant.upsert({
     where: { domain: "acme.hireos.local" },

@@ -22,6 +22,14 @@ enum InvitationStatus {
   EXPIRED
 }
 
+enum ResumeStatus {
+  UPLOADED
+  EXTRACTING
+  EXTRACTED
+  FAILED
+  EDITED
+}
+
 model Tenant {
   id           String   @id @default(uuid())
   name         String
@@ -37,6 +45,7 @@ model Tenant {
   sessions     UserSession[]
   invitations  TenantInvitation[]
   auditEvents  AuditEvent[]
+  resumes      Resume[]
 
   @@map("tenants")
 }
@@ -60,6 +69,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   invitationsSent     TenantInvitation[]   @relation("InvitationInviter")
   policiesUpdated     TenantPolicy[]       @relation("PolicyUpdater")
+  resumesCreated      Resume[]             @relation("ResumeCreator")
 
   @@index([ssoProvider, ssoId])
   @@map("users")
@@ -208,6 +218,30 @@ model PasswordResetToken {
   @@index([tokenHash])
   @@index([userId])
   @@map("password_reset_tokens")
+}
+
+model Resume {
+  id                 String       @id @default(uuid())
+  tenantId           String       @map("tenant_id")
+  createdByUserId    String       @map("created_by_user_id")
+  originalFilename   String       @map("original_filename")
+  contentType        String       @map("content_type")
+  sizeBytes          Int          @map("size_bytes")
+  storageKey         String       @map("storage_key")
+  status             ResumeStatus @default(UPLOADED)
+  extractedJson      Json?        @map("extracted_json")
+  workingJson        Json?        @map("working_json")
+  parseSource        String?      @map("parse_source")
+  errorMessage       String?      @map("error_message")
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User   @relation("ResumeCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
+  @@map("resumes")
 }
 
 /// Append-only. No application code should ever issue an UPDATE or DELETE

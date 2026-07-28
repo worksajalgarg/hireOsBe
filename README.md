@@ -24,9 +24,12 @@ npm run start:dev               # http://localhost:4000  (API prefix /api/v1)
 
 # 3. AI service (FastAPI), in another terminal
 cd ai-service
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env   # set OPENAI_API_KEY
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
+
+Resume Extractor (Admin): FE `/resumeExtractor` → platform `/api/v1/resumes` (MinIO files + Postgres JSON) → proxies SSE to ai-service. Platform env needs `S3_*` and `AI_SERVICE_URL` (see `platform/.env.example`).
 
 ## Auth smoke test
 

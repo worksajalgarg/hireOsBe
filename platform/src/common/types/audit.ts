@@ -2,6 +2,13 @@ export type AuditEventType =
   | "tenant.created"
   | "user.invited"
   | "user.role_changed"
+  | "user.removed"
+  | "user.login"
+  | "user.logout"
+  | "user.password_reset_requested"
+  | "user.password_changed"
+  | "workspace.settings_updated"
+  | "role.created"
   | "role_context.approved"
   | "candidate.disposition"
   | "model_version.promoted";

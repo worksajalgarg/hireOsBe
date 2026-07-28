@@ -3,11 +3,11 @@ import { Reflector } from "@nestjs/core";
 import { UserRole } from "./types";
 import { ROLES_KEY } from "./roles.decorator";
 import { TenantScopedRequest } from "./tenant-context.middleware";
+import { LEGACY_ROLE_TO_SYSTEM_NAME } from "./permissions";
 
 /**
- * Least-privilege enforcement per FR-102: a route decorated with @Roles(...)
- * rejects any actor whose role is not in the allowed set. Routes with no
- * @Roles decorator are left to the controller to reason about explicitly.
+ * Temporary bridge: maps JWT roleName (e.g. "Admin") or legacy actorRole
+ * ("admin") against @Roles(...). Prefer @RequirePermissions going forward.
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -24,11 +24,25 @@ export class RolesGuard implements CanActivate {
     }
 
     const request = context.switchToHttp().getRequest<TenantScopedRequest>();
-    const actorRole = request.actorRole as UserRole | undefined;
+    const actorRole = request.actorRole;
+    if (!actorRole) {
+      throw new ForbiddenException("Role 'unknown' is not permitted to perform this action");
+    }
 
-    if (!actorRole || !requiredRoles.includes(actorRole)) {
+    const normalized = actorRole.toLowerCase().replace(/\s+/g, "_");
+    const allowed = requiredRoles.some((role) => {
+      const systemName = LEGACY_ROLE_TO_SYSTEM_NAME[role]?.toLowerCase();
+      return (
+        role === actorRole ||
+        role === normalized ||
+        systemName === actorRole.toLowerCase() ||
+        LEGACY_ROLE_TO_SYSTEM_NAME[normalized] === actorRole
+      );
+    });
+
+    if (!allowed) {
       throw new ForbiddenException(
-        `Role '${actorRole ?? "unknown"}' is not permitted to perform this action`,
+        `Role '${actorRole}' is not permitted to perform this action`,
       );
     }
 

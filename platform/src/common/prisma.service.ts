@@ -17,4 +17,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async onModuleDestroy() {
     await this.$disconnect();
   }
+
+  /**
+   * Sets Postgres GUC used by RLS policies. Session-scoped (is_local=false)
+   * so it applies to subsequent queries on this pooled connection. See ADR 0004.
+   */
+  async setTenantContext(tenantId: string | null) {
+    const value = tenantId ?? "";
+    await this.$executeRaw`SELECT set_config('app.current_tenant_id', ${value}, false)`;
+  }
 }

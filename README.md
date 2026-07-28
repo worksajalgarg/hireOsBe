@@ -11,14 +11,16 @@ See the companion [hireOsFe](../hireOsFe) repo for the Next.js frontend that tal
 
 ```bash
 # 1. Local infra (Postgres+pgvector, Redis, MinIO, ElasticMQ)
-docker compose -f infra/docker-compose.yml up -d
+docker-compose -f infra/docker-compose.yml up -d
 
 # 2. Platform (NestJS)
 cd platform
 npm install
 cp .env.example .env
-npm run db:migrate -- --name init
-npm run start:dev            # http://localhost:4000
+npm run db:migrate
+npm run db:seed                 # admin@hireos.local / Password123!
+npm run start:dev               # http://localhost:4000  (API prefix /api/v1)
+# Swagger UI: http://localhost:4000/api/docs
 
 # 3. AI service (FastAPI), in another terminal
 cd ai-service
@@ -26,24 +28,21 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-Or use the VS Code launch config: Run and Debug → **"Launch All (Backend)"** starts infra + both services together.
+## Auth smoke test
+
+```bash
+curl -X POST http://localhost:4000/api/v1/auth/login \
+  -H "content-type: application/json" \
+  -c /tmp/hireos.cookies \
+  -d '{"email":"admin@hireos.local","password":"Password123!"}'
+```
+
+OpenAPI sketch: `docs/openapi/auth-rbac.yaml`. Architecture notes: `docs/adr/0004-auth-rbac-rls.md`.
 
 ## Checks (what CI runs)
 ```bash
 cd platform && npm run typecheck && npm run lint && npm run test && npm run build
 cd ai-service && ruff check app tests && pytest -q
-```
-
-## Testing manually (see also hireOsFe's README for the frontend side)
-
-```bash
-# Create a tenant
-curl -X POST http://localhost:4000/tenants \
-  -H "content-type: application/json" -H "x-actor-id: founder-1" \
-  -d '{"name":"Acme Corp","domain":"acme.example.com"}'
-
-# AI service Swagger UI
-open http://localhost:8000/docs
 ```
 
 ## Shared type contracts

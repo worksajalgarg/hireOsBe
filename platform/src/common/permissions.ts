@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   AUDIT_READ: "audit.read",
   PROFILE_READ: "profile.read",
   PROFILE_WRITE: "profile.write",
+  INTERVIEWS_MANAGE: "interviews.manage",
 } as const;
 
 export type PermissionSlug = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -30,6 +31,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.ROLES_READ,
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
+    PERMISSIONS.INTERVIEWS_MANAGE,
   ],
   [SYSTEM_ROLE_NAMES.HiringManager]: [
     PERMISSIONS.WORKSPACE_SETTINGS_READ,
@@ -37,6 +39,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.ROLES_READ,
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
+    PERMISSIONS.INTERVIEWS_MANAGE,
   ],
   [SYSTEM_ROLE_NAMES.Auditor]: [
     PERMISSIONS.WORKSPACE_SETTINGS_READ,

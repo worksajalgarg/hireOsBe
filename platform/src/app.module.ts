@@ -11,6 +11,7 @@ import { RoleContextModule } from "./role-context/role-context.module";
 import { CandidatesModule } from "./candidates/candidates.module";
 import { WorkflowModule } from "./workflow/workflow.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
+import { InterviewsModule } from "./interviews/interviews.module";
 import { AuthModule } from "./auth/auth.module";
 import { JwtAuthGuard } from "./auth/jwt-auth.guard";
 import { PermissionsGuard } from "./auth/permissions.guard";
@@ -31,6 +32,7 @@ import { RbacModule } from "./rbac/rbac.module";
     CandidatesModule,
     WorkflowModule,
     IntegrationsModule,
+    InterviewsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

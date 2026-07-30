@@ -6,6 +6,8 @@ roadmap's reference architecture diagram: "model providers are never called
 directly from product modules."
 """
 
+from collections.abc import AsyncIterator
+
 from .providers import get_provider_client
 from .use_case_policy import get_policy
 
@@ -15,6 +17,16 @@ class ModelGateway:
         policy = get_policy(use_case)
         client = get_provider_client(policy.primary)
         return await client.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+
+    async def run_stream(
+        self, *, use_case: str, system_prompt: str, user_prompt: str
+    ) -> AsyncIterator[str]:
+        policy = get_policy(use_case)
+        client = get_provider_client(policy.primary)
+        async for chunk in client.stream_complete(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        ):
+            yield chunk
 
 
 model_gateway = ModelGateway()

@@ -1,0 +1,14 @@
+# Local development only — LiveKit Egress, records room-composite sessions
+# and uploads to the local MinIO bucket "interview-recordings".
+redis:
+  address: redis:6379
+api_key: devkey
+api_secret: hireosdevsecret_do_not_use_in_prod
+ws_url: ws://livekit-server:7880
+s3:
+  access_key: platform
+  secret: platform123
+  bucket: interview-recordings
+  endpoint: http://minio:9000
+  force_path_style: true
+  region: us-east-1

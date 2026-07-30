@@ -51,6 +51,41 @@ services:
     ports:
       - "9324:9324"
 
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 platform platform123 &&
+      mc mb -p local/interview-recordings &&
+      exit 0
+      "
+
+  livekit-server:
+    image: livekit/livekit-server:latest
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"   # signaling (HTTP/WS)
+      - "7881:7881"   # RTC over TCP fallback
+      - "50000-50100:50000-50100/udp"   # RTC media
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  livekit-egress:
+    image: livekit/egress:latest
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./livekit/egress.yaml:/etc/egress.yaml:ro
+    depends_on:
+      - livekit-server
+      - minio-init
+
 volumes:
   postgres-data:
   minio-data:

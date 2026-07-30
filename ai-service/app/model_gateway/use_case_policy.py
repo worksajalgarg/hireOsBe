@@ -44,6 +44,18 @@ USE_CASE_POLICIES: dict[str, UseCasePolicy] = {
         fallback=None,
         rationale="Generate explanation only from stored evidence and scores.",
     ),
+    "voice_interview_turn": UseCasePolicy(
+        primary=Provider.GEMINI,
+        fallback=Provider.OPENAI,
+        rationale=(
+            "Realtime conversational turn generation for the Voice Interviewer "
+            "(PRD Section 7.1); bounded by interview_orchestrator/voice_agent "
+            "system-prompt guardrails, no scoring or rubric authority (ADR-0003). "
+            "Gemini chosen for this POC based on available credentials; STT/TTS "
+            "stay on OpenAI (audio-only, not a reasoning surface — see "
+            "voice_agent/gateway_llm.py's module docstring)."
+        ),
+    ),
 }
 
 

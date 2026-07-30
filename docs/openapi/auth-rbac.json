@@ -657,6 +657,115 @@
           "Integrations"
         ]
       }
+    },
+    "/api/v1/interviews": {
+      "post": {
+        "operationId": "InterviewsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInterviewSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/join": {
+      "post": {
+        "operationId": "InterviewsController_join",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinInterviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/{id}/token": {
+      "post": {
+        "operationId": "InterviewsController_recruiterToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/{id}/end": {
+      "post": {
+        "operationId": "InterviewsController_end",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
     }
   },
   "info": {
@@ -733,6 +842,14 @@
         "properties": {}
       },
       "CreateRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateInterviewSessionDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "JoinInterviewDto": {
         "type": "object",
         "properties": {}
       }

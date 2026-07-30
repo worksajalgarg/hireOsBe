@@ -22,6 +22,13 @@ enum InvitationStatus {
   EXPIRED
 }
 
+enum InterviewSessionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
 model Tenant {
   id           String   @id @default(uuid())
   name         String
@@ -37,6 +44,7 @@ model Tenant {
   sessions     UserSession[]
   invitations  TenantInvitation[]
   auditEvents  AuditEvent[]
+  interviewSessions InterviewSession[]
 
   @@map("tenants")
 }
@@ -193,6 +201,32 @@ model TenantInvitation {
   @@index([tenantId, email])
   @@index([tokenHash])
   @@map("tenant_invitations")
+}
+
+/// LiveKit-backed AI voice interview session. `candidateRef` is a placeholder
+/// free-text reference (no Candidate model exists yet — lands Sprint 3); this
+/// stays a plain string until that model exists, at which point it becomes a
+/// real FK.
+model InterviewSession {
+  id              String                 @id @default(uuid())
+  tenantId        String                 @map("tenant_id")
+  candidateRef    String                 @map("candidate_ref")
+  roomName        String                 @unique @map("room_name")
+  inviteTokenHash String                 @map("invite_token_hash")
+  inviteExpiresAt DateTime               @map("invite_expires_at")
+  status          InterviewSessionStatus @default(PENDING)
+  egressId        String?                @map("egress_id")
+  recordingUrl    String?                @map("recording_url")
+  startedAt       DateTime?              @map("started_at")
+  endedAt         DateTime?              @map("ended_at")
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([inviteTokenHash])
+  @@map("interview_sessions")
 }
 
 model PasswordResetToken {

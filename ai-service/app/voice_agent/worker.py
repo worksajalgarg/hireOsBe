@@ -56,7 +56,7 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 def main() -> None:
-    load_settings()  # fail fast if LIVEKIT_*/OPENAI_API_KEY are missing
+    load_settings()  # fail fast if LIVEKIT_*/GEMINI_API_KEY/etc are missing
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 
 

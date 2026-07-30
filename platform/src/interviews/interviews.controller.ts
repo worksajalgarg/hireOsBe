@@ -22,6 +22,7 @@ export class InterviewsController {
       tenantId: user.tenantId,
       actorId: user.id,
       candidateRef: dto.candidateRef,
+      resumeContext: dto.resumeContext,
     });
     const appUrl = process.env.CANDIDATE_APP_URL ?? process.env.CORS_ORIGIN ?? "http://localhost:3000";
     return { id, inviteUrl: `${appUrl}/candidate/interview/${inviteToken}` };

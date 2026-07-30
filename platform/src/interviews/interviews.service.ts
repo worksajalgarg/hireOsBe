@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes, randomUUID, createHash } from "crypto";
+import { TrackSource } from "@livekit/protocol";
 import { PrismaService } from "../common/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { LiveKitService } from "./livekit.service";
@@ -26,7 +27,12 @@ export class InterviewsService {
 
   /** Recruiter/admin-authed: creates the session, the LiveKit room, and the
    * single-use candidate invite link. */
-  async createSession(params: { tenantId: string; actorId: string; candidateRef: string }) {
+  async createSession(params: {
+    tenantId: string;
+    actorId: string;
+    candidateRef: string;
+    resumeContext?: string;
+  }) {
     const roomName = `interview-${randomUUID()}`;
     const inviteToken = randomBytes(32).toString("hex");
     const session = await this.prisma.interviewSession.create({
@@ -42,9 +48,11 @@ export class InterviewsService {
     // Room metadata is how the voice agent worker (a separate process, dispatched
     // by livekit-server, never calling back into platform) learns which tenant
     // and session it's bound to — it must never see another candidate's data.
+    // resumeContext rides along the same channel so the agent can ground its
+    // questions in the candidate's actual background (see prompts.py).
     await this.livekit.createRoom(
       roomName,
-      { tenantId: params.tenantId, sessionId: session.id },
+      { tenantId: params.tenantId, sessionId: session.id, resumeContext: params.resumeContext },
       INVITE_TOKEN_TTL_MS / 1000,
     );
 
@@ -96,7 +104,14 @@ export class InterviewsService {
     const token = await this.livekit.mintToken({
       identity: `candidate-${session.id}`,
       roomName: session.roomName,
-      grant: { roomJoin: true, canPublish: true, canSubscribe: true },
+      // canPublishSources is explicit least-privilege: camera+mic only, not
+      // a blanket canPublish (which would also allow e.g. screen-share).
+      grant: {
+        roomJoin: true,
+        canPublish: true,
+        canPublishSources: [TrackSource.CAMERA, TrackSource.MICROPHONE],
+        canSubscribe: true,
+      },
       ttlSeconds: CANDIDATE_TOKEN_TTL_SECONDS,
     });
 

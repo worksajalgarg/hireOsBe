@@ -17,30 +17,31 @@ from livekit.plugins import deepgram, elevenlabs, silero
 
 from .config import DIRECT, load_settings
 from .gateway_llm import GatewayLLM
-from .prompts import INTERVIEW_SYSTEM_PROMPT
 
 
-def build_agent_session() -> AgentSession:
+def build_agent_session(system_prompt: str) -> AgentSession:
     settings = load_settings()
 
-    # detect_language lets the candidate speak any language Deepgram
-    # supports; the agent's replies stay English regardless (see
-    # INTERVIEW_SYSTEM_PROMPT) — this is intentionally one-directional, not
-    # full bilingual conversation.
+    # language="multi" (not detect_language=True — Deepgram rejects that in
+    # streaming mode, which is what a realtime voice agent always uses) lets
+    # the candidate speak any Deepgram-supported language, with code-
+    # switching. The agent's replies stay English regardless (see
+    # system_prompt) — this is intentionally one-directional, not full
+    # bilingual conversation.
     if settings.voice_provider == DIRECT:
-        stt = deepgram.STT(api_key=settings.deepgram_api_key, detect_language=True)
+        stt = deepgram.STT(api_key=settings.deepgram_api_key, language="multi")
         tts = elevenlabs.TTS(api_key=settings.elevenlabs_api_key, model="eleven_flash_v2_5")
     else:
-        stt = inference.STT(model="deepgram/nova-3", extra_kwargs={"detect_language": True})
+        stt = inference.STT(model="deepgram/nova-3", language="multi")
         tts = inference.TTS(model="elevenlabs/eleven_flash_v2_5")
 
     return AgentSession(
         vad=silero.VAD.load(),
         stt=stt,
-        llm=GatewayLLM(system_prompt=INTERVIEW_SYSTEM_PROMPT),
+        llm=GatewayLLM(system_prompt=system_prompt),
         tts=tts,
     )
 
 
-def build_interview_agent() -> Agent:
-    return Agent(instructions=INTERVIEW_SYSTEM_PROMPT)
+def build_interview_agent(system_prompt: str) -> Agent:
+    return Agent(instructions=system_prompt)

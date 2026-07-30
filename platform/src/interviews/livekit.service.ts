@@ -59,8 +59,13 @@ export class LiveKitService {
     return token.toJwt();
   }
 
-  /** Voice-only interview — records audio composite, no video track, to the
-   * tenant-prefixed S3(MinIO) object key the caller provides. */
+  /** Records the full room composite (candidate's audio + video — the agent
+   * has no video track, so the composite only ever contains the candidate's
+   * camera) to the tenant-prefixed S3(MinIO) object key the caller provides.
+   * This is a capture/storage concern only: nothing downstream analyzes the
+   * video — see ai-service/app/voice_agent/worker.py's AutoSubscribe.AUDIO_ONLY,
+   * which keeps the AI agent structurally blind to video regardless of what
+   * gets recorded here. */
   async startRoomCompositeEgress(roomName: string, s3ObjectKey: string): Promise<{ egressId: string }> {
     const output = new EncodedFileOutput({
       fileType: EncodedFileType.MP4,
@@ -78,9 +83,7 @@ export class LiveKitService {
       },
     });
 
-    const info = await this.egressClient.startRoomCompositeEgress(roomName, output, {
-      audioOnly: true,
-    });
+    const info = await this.egressClient.startRoomCompositeEgress(roomName, output);
     this.logger.log(`Started egress ${info.egressId} for room ${roomName}`);
     return { egressId: info.egressId };
   }

@@ -6,13 +6,7 @@ from dataclasses import dataclass
 
 from app.config import get_settings
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx"}
-ALLOWED_CONTENT_TYPES = {
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/msword",
-    "application/octet-stream",  # browsers sometimes send this
-}
+from .formats import ALLOWED_CONTENT_TYPES, ALLOWED_EXTENSIONS
 
 
 class FileValidationError(ValueError):
@@ -48,8 +42,9 @@ def validate_upload(
 
     ext = _extension(filename)
     if ext not in ALLOWED_EXTENSIONS:
+        allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
         raise FileValidationError(
-            f"Unsupported file type '{ext or '(none)'}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
+            f"Unsupported file type '{ext or '(none)'}'. Allowed: {allowed}"
         )
 
     if size_bytes <= 0:

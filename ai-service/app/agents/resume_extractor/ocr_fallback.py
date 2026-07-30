@@ -81,7 +81,21 @@ def _extract_easyocr(path: Path) -> str:
 
 def _fallback_sync(path: Path) -> ParsedDocument:
     suffix = path.suffix.lower()
-    if suffix == ".docx":
+
+    if suffix == ".doc":
+        try:
+            from .legacy_doc import LegacyDocError, extract_text_from_legacy_doc
+
+            text = extract_text_from_legacy_doc(path)
+        except LegacyDocError as exc:
+            raise OcrFallbackError(str(exc)) from exc
+        except Exception as exc:
+            raise OcrFallbackError(f"Legacy .doc extraction failed: {exc}") from exc
+        if len(text) < SPARSE_TEXT_THRESHOLD:
+            raise OcrFallbackError("Legacy .doc text extraction produced sparse/empty output")
+        return ParsedDocument(markdown=text, tables=[], source="legacy_doc")
+
+    if suffix in {".docx"}:
         try:
             text = _extract_docx(path)
         except OcrFallbackError:
@@ -92,6 +106,16 @@ def _fallback_sync(path: Path) -> ParsedDocument:
             raise OcrFallbackError("DOCX text extraction produced sparse/empty output")
         return ParsedDocument(markdown=text, tables=[], source="python-docx")
 
+    if suffix in {".md", ".markdown", ".adoc", ".asciidoc", ".html", ".htm"}:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+        except Exception as exc:
+            raise OcrFallbackError(f"Text file read failed: {exc}") from exc
+        if len(text) < SPARSE_TEXT_THRESHOLD:
+            raise OcrFallbackError("Text extraction produced sparse/empty output")
+        return ParsedDocument(markdown=text, tables=[], source="plaintext")
+
+    # PDF + images (and anything PyMuPDF can open)
     pymupdf_error: str | None = None
     try:
         text = _extract_pymupdf(path)

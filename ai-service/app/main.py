@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .ssl_certs import configure_ssl_certs
+from .ssl_certs import configure_huggingface_offline, configure_ssl_certs
 
 # Must run before Docling / HuggingFace / urllib downloads.
 configure_ssl_certs()
+configure_huggingface_offline()
 
 from .agents import (
     evaluation_engine,

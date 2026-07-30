@@ -8,10 +8,40 @@ import { randomUUID } from "crypto";
 import { PrismaService } from "../common/prisma.service";
 import { ObjectStorageService } from "../common/storage/object-storage.service";
 
-const ALLOWED_EXT = new Set([".pdf", ".docx"]);
+const ALLOWED_EXT = new Set([
+  ".pdf",
+  ".docx",
+  ".doc",
+  ".odt",
+  ".html",
+  ".htm",
+  ".md",
+  ".markdown",
+  ".adoc",
+  ".asciidoc",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".webp",
+  ".tif",
+  ".tiff",
+  ".bmp",
+]);
 const ALLOWED_MIME = new Set([
   "application/pdf",
+  "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.oasis.opendocument.text",
+  "text/html",
+  "application/xhtml+xml",
+  "text/markdown",
+  "text/x-markdown",
+  "text/plain",
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/tiff",
+  "image/bmp",
   "application/octet-stream",
 ]);
 
@@ -36,7 +66,9 @@ export class ResumesService {
   private validateUpload(filename: string, contentType: string, size: number) {
     const ext = this.extension(filename);
     if (!ALLOWED_EXT.has(ext)) {
-      throw new BadRequestException(`Unsupported file type '${ext}'. Allowed: .pdf, .docx`);
+      throw new BadRequestException(
+        `Unsupported file type '${ext}'. Allowed: PDF, DOC, DOCX, ODT, HTML, Markdown, or image`,
+      );
     }
     if (size <= 0) {
       throw new BadRequestException("File is empty");

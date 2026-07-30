@@ -13,10 +13,24 @@ from app.agents.resume_extractor.validation import FileValidationError, validate
 def test_validate_upload_rejects_unsupported_extension() -> None:
     with pytest.raises(FileValidationError, match="Unsupported file type"):
         validate_upload(
-            filename="resume.txt",
-            content_type="text/plain",
+            filename="resume.exe",
+            content_type="application/octet-stream",
             size_bytes=100,
         )
+
+
+def test_validate_upload_accepts_doc_and_docx() -> None:
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    for name, ctype in (
+        ("resume.doc", "application/msword"),
+        ("resume.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+        ("scan.png", "image/png"),
+        ("notes.md", "text/markdown"),
+    ):
+        result = validate_upload(filename=name, content_type=ctype, size_bytes=2048)
+        assert result.filename == name
 
 
 def test_validate_upload_rejects_empty_file() -> None:

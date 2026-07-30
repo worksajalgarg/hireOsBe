@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash-lite"
     # When true, gemini/openrouter failures fall back to mock so the pipeline can finish
     llm_fallback_to_mock: bool = True
+    # Docling: force OCR on every PDF page (slower; useful for scanned resumes)
+    docling_force_full_page_ocr: bool = False
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from .docling_parser import DoclingParseError, parse_with_docling
+from .docling_parser import DoclingParseError, ParsedDocument, parse_with_docling
+from .legacy_doc import LegacyDocError, prepare_doc_for_parse
 from .normalize import normalize_text
 from .ocr_fallback import OcrFallbackError, parse_with_ocr_fallback
 from .schemas import StageEvent, StageName, StageStatus
@@ -67,25 +69,64 @@ async def run_extraction_pipeline(
     with tempfile.TemporaryDirectory(prefix="resume_extract_") as tmp:
         path = Path(tmp) / validated.filename
         path.write_bytes(file_bytes)
+        parse_path = path
+        normalize_meta: dict = {}
+
+        if suffix == ".doc":
+            try:
+                parse_path = await asyncio.to_thread(
+                    prepare_doc_for_parse,
+                    path,
+                    Path(tmp) / "normalized",
+                )
+                normalize_meta = {
+                    "legacy_doc": True,
+                    "normalized_to": parse_path.suffix.lstrip(".").lower(),
+                    "normalized_name": parse_path.name,
+                }
+            except LegacyDocError as exc:
+                normalize_meta = {"legacy_doc": True, "normalize_error": str(exc)}
 
         yield StageEvent(
             stage=StageName.DOCLING,
             status=StageStatus.RUNNING,
-            message="Parsing document with Docling",
+            message=(
+                "Parsing document with Docling"
+                + (
+                    f" (normalized .doc → .{normalize_meta.get('normalized_to')})"
+                    if normalize_meta.get("normalized_to")
+                    else ""
+                )
+            ),
+            data=normalize_meta or {},
         )
         parsed = None
         used_fallback = False
         try:
-            parsed = await parse_with_docling(path)
+            if parse_path.suffix.lower() == ".txt":
+                text = parse_path.read_text(encoding="utf-8", errors="replace").strip()
+                if not text:
+                    raise DoclingParseError("Legacy .doc converted to empty text")
+                parsed = ParsedDocument(
+                    markdown=text,
+                    tables=[],
+                    source="legacy_doc_textutil",
+                    meta={**normalize_meta, "pages": 1},
+                )
+            else:
+                parsed = await parse_with_docling(parse_path)
             yield StageEvent(
                 stage=StageName.DOCLING,
                 status=StageStatus.SUCCESS,
-                message="Docling parse succeeded",
+                message="Docling parse succeeded (layout/OCR/tables; no LLM)",
                 data={
-                    "markdown_preview": parsed.markdown[:2000],
+                    "markdown_preview": parsed.markdown[:4000],
                     "markdown_length": len(parsed.markdown),
+                    "tables_preview": [t[:1500] for t in parsed.tables[:8]],
                     "table_count": len(parsed.tables),
+                    "document_json_preview": parsed.document_json_preview,
                     "source": parsed.source,
+                    "meta": {**parsed.meta, **normalize_meta},
                 },
             )
             yield StageEvent(
@@ -102,7 +143,7 @@ async def run_extraction_pipeline(
             yield StageEvent(
                 stage=StageName.OCR_FALLBACK,
                 status=StageStatus.RUNNING,
-                message="Trying PyMuPDF + EasyOCR fallback",
+                message="Trying legacy-doc / PyMuPDF / EasyOCR fallback",
             )
             try:
                 parsed = await parse_with_ocr_fallback(path)
@@ -139,16 +180,26 @@ async def run_extraction_pipeline(
         )
         pieces = [parsed.markdown]
         if parsed.tables:
-            pieces.append("\n\n## Tables\n\n" + "\n\n".join(parsed.tables))
+            # Append structured table markdown so the LLM sees grid content even if
+            # inline markdown omitted a table edge case.
+            pieces.append(
+                "\n\n## Extracted tables\n\n"
+                + "\n\n".join(
+                    f"### Table {i + 1}\n\n{table}"
+                    for i, table in enumerate(parsed.tables)
+                )
+            )
         normalized = normalize_text("\n\n".join(pieces))
         yield StageEvent(
             stage=StageName.TEXT_NORMALIZATION,
             status=StageStatus.SUCCESS,
-            message="Text normalized",
+            message="Text normalized for LLM field mapping",
             data={
-                "preview": normalized[:2000],
+                "preview": normalized[:4000],
                 "length": len(normalized),
                 "used_ocr_fallback": used_fallback,
+                "table_count": len(parsed.tables),
+                "parse_source": parsed.source,
             },
         )
 

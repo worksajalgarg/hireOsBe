@@ -7,7 +7,10 @@ import { LiveKitService } from "./livekit.service";
 
 const INVITE_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour — short-lived, single-use candidate join link
 const RECRUITER_OBSERVER_TOKEN_TTL_SECONDS = 30 * 60;
-const CANDIDATE_TOKEN_TTL_SECONDS = 60 * 60;
+// 3 hours, not the interview's expected ~30-45min length — a token that
+// expires mid-call would disconnect the candidate with no refresh mechanism
+// in place. Generous headroom costs nothing (it's scoped to one room only).
+const CANDIDATE_TOKEN_TTL_SECONDS = 3 * 60 * 60;
 
 @Injectable()
 export class InterviewsService {

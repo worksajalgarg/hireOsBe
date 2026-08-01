@@ -24,6 +24,7 @@ from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 from livekit.agents.job import AutoSubscribe
 
 from ..model_gateway.metrics_log import reset_dev_metrics
+from ..model_gateway.use_case_policy import apply_provider_priority
 from .config import load_settings
 from .controls import register_control_handlers
 from .conversation_start import register_silence_handling
@@ -44,6 +45,16 @@ logger = logging.getLogger("voice_agent")
 
 CANDIDATE_INTERVIEW = "candidate_interview"
 HIRING_MANAGER_DISCOVERY = "hiring_manager_discovery"
+
+# Only these four use cases were ever affected by today's quota-exhaustion
+# reordering (see use_case_policy.py) — the non-voice use cases keep their
+# own hardcoded chains regardless of VOICE_LLM_PROVIDER_PRIORITY.
+_VOICE_LLM_USE_CASES = [
+    "voice_interview_turn",
+    "voice_interview_summary",
+    "role_discovery_turn",
+    "role_discovery_extraction",
+]
 
 
 def _room_metadata(ctx: JobContext) -> dict:
@@ -112,7 +123,11 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 def main() -> None:
-    load_settings()  # fail fast if LIVEKIT_*/GEMINI_API_KEY/etc are missing
+    settings = load_settings()  # fail fast if LIVEKIT_*/GEMINI_API_KEY/etc are missing
+    # Runtime-configurable provider order (VOICE_LLM_PROVIDER_PRIORITY — see
+    # config.py) applied once for the whole worker process lifetime, not
+    # per-call — same pattern as every other setting here.
+    apply_provider_priority(_VOICE_LLM_USE_CASES, settings.llm_provider_priority)
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 
 

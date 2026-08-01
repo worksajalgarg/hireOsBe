@@ -205,3 +205,30 @@ def get_policy(use_case: str) -> UseCasePolicy:
     if use_case not in USE_CASE_POLICIES:
         raise KeyError(f"No routing policy defined for use case '{use_case}'")
     return USE_CASE_POLICIES[use_case]
+
+
+def _reorder_chain(chain: list[ProviderChoice], order: list[Provider]) -> list[ProviderChoice]:
+    """Providers named in `order` come first, in that order; any tier not
+    mentioned keeps its original relative position, appended after. Never
+    adds or removes a tier — only changes which one runs first."""
+    priority = {provider: i for i, provider in enumerate(order)}
+    indexed = list(enumerate(chain))
+    indexed.sort(key=lambda pair: (priority.get(pair[1].provider, len(order) + pair[0]), pair[0]))
+    return [choice for _, choice in indexed]
+
+
+def apply_provider_priority(use_cases: list[str], order: list[Provider]) -> None:
+    """Reorders the chain for each named use case to try providers in
+    `order` first — called once at worker startup (see voice_agent/worker.py)
+    from a runtime setting (voice_agent/config.py's llm_provider_priority),
+    so which tier runs first can change via an env var instead of editing
+    this file's hardcoded chains directly. Never changes *which*
+    providers/models are available for a use case (that stays defined once,
+    above — the auditable source of truth this module's docstring already
+    describes) — only the order they're tried in."""
+    for use_case in use_cases:
+        policy = get_policy(use_case)
+        USE_CASE_POLICIES[use_case] = UseCasePolicy(
+            chain=_reorder_chain(policy.chain, order),
+            rationale=policy.rationale,
+        )

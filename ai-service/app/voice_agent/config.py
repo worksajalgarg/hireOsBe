@@ -9,8 +9,19 @@ conventions are kept aligned by hand.
 import os
 from dataclasses import dataclass
 
+from ..model_gateway.providers import Provider
+
 DIRECT = "direct"
 LIVEKIT_INFERENCE = "livekit_inference"
+
+# Live-tested default as of today's session: a free OpenRouter model first
+# (Groq's daily token cap and Gemini's free-tier cap both got exhausted
+# simultaneously during heavy dev testing, leaving no working provider at
+# all — see use_case_policy.py's voice_interview_turn rationale). Revisit
+# back to Groq-first once Groq/Gemini are on a tier where that's no longer
+# a real risk — that's exactly what VOICE_LLM_PROVIDER_PRIORITY is for: an
+# env-var change, not a code edit.
+DEFAULT_LLM_PROVIDER_PRIORITY = [Provider.OPENROUTER, Provider.GEMINI, Provider.GROQ]
 
 
 @dataclass(frozen=True)
@@ -22,6 +33,10 @@ class VoiceAgentSettings:
     voice_provider: str  # DIRECT or LIVEKIT_INFERENCE — see session.py
     deepgram_api_key: str  # "" when voice_provider != DIRECT
     elevenlabs_api_key: str  # "" when voice_provider != DIRECT
+    # Which LLM provider the voice/discovery use cases try first, second,
+    # third — see model_gateway/use_case_policy.py's apply_provider_priority(),
+    # called once at worker startup with this value (see worker.py's main()).
+    llm_provider_priority: list[Provider]
 
 
 def load_settings() -> VoiceAgentSettings:
@@ -53,6 +68,7 @@ def load_settings() -> VoiceAgentSettings:
         voice_provider=voice_provider,
         deepgram_api_key=deepgram_api_key,
         elevenlabs_api_key=elevenlabs_api_key,
+        llm_provider_priority=_parse_llm_provider_priority(),
     )
 
 
@@ -61,3 +77,35 @@ def _require(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required env var {name}")
     return value
+
+
+def _parse_llm_provider_priority() -> list[Provider]:
+    """VOICE_LLM_PROVIDER_PRIORITY="openrouter,gemini,groq" — comma-separated
+    provider names, tried in that order for voice_interview_turn/summary and
+    role_discovery_turn/extraction (see use_case_policy.py's
+    apply_provider_priority(), applied once in worker.py's main()). Unset
+    keeps today's live-tested default. Validated here (fail at startup, not
+    mid-call) — an unknown name or a duplicate is a config mistake, not
+    something to silently ignore."""
+    raw = os.environ.get("VOICE_LLM_PROVIDER_PRIORITY")
+    if not raw:
+        return list(DEFAULT_LLM_PROVIDER_PRIORITY)
+
+    names = [name.strip() for name in raw.split(",") if name.strip()]
+    if not names:
+        raise RuntimeError("VOICE_LLM_PROVIDER_PRIORITY is set but empty")
+
+    providers: list[Provider] = []
+    for name in names:
+        try:
+            providers.append(Provider(name))
+        except ValueError:
+            valid = ", ".join(p.value for p in Provider)
+            raise RuntimeError(
+                f"VOICE_LLM_PROVIDER_PRIORITY has unknown provider '{name}' — valid: {valid}"
+            ) from None
+
+    if len(set(providers)) != len(providers):
+        raise RuntimeError(f"VOICE_LLM_PROVIDER_PRIORITY has a duplicate provider: {raw!r}")
+
+    return providers

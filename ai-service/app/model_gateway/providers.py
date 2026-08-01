@@ -41,6 +41,16 @@ class ProviderClient:
         providers (OpenAI-compatible ones, Gemini below) override this."""
         yield await self.complete(system_prompt=system_prompt, user_prompt=user_prompt)
 
+    async def complete_json(self, *, system_prompt: str, user_prompt: str) -> str:
+        """Best-effort JSON-mode completion — providers below override this
+        to actually request their native JSON/structured-output mode.
+        Callers (gateway.py's run_structured) validate the result against a
+        schema regardless, so this default (no enforcement) is safe: a
+        provider with no JSON mode just relies on validation to catch a
+        malformed response and retry, same as one that ignores its own
+        JSON-mode flag."""
+        return await self.complete(system_prompt=system_prompt, user_prompt=user_prompt)
+
 
 class _OpenAICompatibleClient(ProviderClient):
     """Shared implementation for any provider that speaks the OpenAI
@@ -88,6 +98,21 @@ class _OpenAICompatibleClient(ProviderClient):
             if delta:
                 yield delta
 
+    async def complete_json(self, *, system_prompt: str, user_prompt: str) -> str:
+        response = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=self._max_tokens,
+            response_format={"type": "json_object"},
+        )
+        content = response.choices[0].message.content
+        if not content:
+            raise RuntimeError(f"{self._model} JSON completion returned no content")
+        return content
+
 
 class OpenAIProviderClient(_OpenAICompatibleClient):
     def __init__(self, model: str = "gpt-4o-mini") -> None:
@@ -125,6 +150,16 @@ class GeminiProviderClient(ProviderClient):
         )
         if not response.text:
             raise RuntimeError("Gemini completion returned no content")
+        return response.text
+
+    async def complete_json(self, *, system_prompt: str, user_prompt: str) -> str:
+        response = await self._client.aio.models.generate_content(
+            model=self._model,
+            contents=user_prompt,
+            config={"system_instruction": system_prompt, "response_mime_type": "application/json"},
+        )
+        if not response.text:
+            raise RuntimeError("Gemini JSON completion returned no content")
         return response.text
 
     async def stream_complete(

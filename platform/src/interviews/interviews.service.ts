@@ -4,6 +4,9 @@ import { TrackSource } from "@livekit/protocol";
 import { PrismaService } from "../common/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { LiveKitService } from "./livekit.service";
+import { SessionType } from "./dto";
+
+const DEFAULT_SESSION_TYPE: SessionType = "candidate_interview";
 
 const INVITE_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour — short-lived, single-use candidate join link
 const RECRUITER_OBSERVER_TOKEN_TTL_SECONDS = 30 * 60;
@@ -35,6 +38,7 @@ export class InterviewsService {
     actorId: string;
     candidateRef: string;
     resumeContext?: string;
+    sessionType?: SessionType;
   }) {
     const roomName = `interview-${randomUUID()}`;
     const inviteToken = randomBytes(32).toString("hex");
@@ -53,9 +57,19 @@ export class InterviewsService {
     // and session it's bound to — it must never see another candidate's data.
     // resumeContext rides along the same channel so the agent can ground its
     // questions in the candidate's actual background (see prompts.py).
+    // sessionType picks which voice-agent persona conducts the call — see
+    // ai-service/app/voice_agent/worker.py's sessionType branch. Defaulted
+    // here explicitly (not left to worker.py's own default) so this is the
+    // one place that decides it, auditable in the payload below.
+    const sessionType = params.sessionType ?? DEFAULT_SESSION_TYPE;
     await this.livekit.createRoom(
       roomName,
-      { tenantId: params.tenantId, sessionId: session.id, resumeContext: params.resumeContext },
+      {
+        tenantId: params.tenantId,
+        sessionId: session.id,
+        resumeContext: params.resumeContext,
+        sessionType,
+      },
       INVITE_TOKEN_TTL_MS / 1000,
     );
 
@@ -65,7 +79,7 @@ export class InterviewsService {
       eventType: "interview.session.created",
       entityType: "interview_session",
       entityId: session.id,
-      payload: { candidateRef: params.candidateRef, roomName },
+      payload: { candidateRef: params.candidateRef, roomName, sessionType },
     });
 
     return { id: session.id, inviteToken };

@@ -15,3 +15,4 @@ coverage/
 .pytest_cache/
 .ruff_cache/
 tsconfig.tsbuildinfo
+ai-service/.dev/

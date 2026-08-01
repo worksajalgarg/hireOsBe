@@ -1,4 +1,7 @@
-import { IsOptional, IsString, MinLength } from "class-validator";
+import { IsIn, IsOptional, IsString, MinLength } from "class-validator";
+
+export const SESSION_TYPES = ["candidate_interview", "hiring_manager_discovery"] as const;
+export type SessionType = (typeof SESSION_TYPES)[number];
 
 export class CreateInterviewSessionDto {
   @IsString()
@@ -12,6 +15,14 @@ export class CreateInterviewSessionDto {
   @IsOptional()
   @IsString()
   resumeContext?: string;
+
+  /** Which voice-agent persona conducts this session — see
+   * ai-service/app/voice_agent/worker.py's sessionType branch. Defaults to
+   * "candidate_interview" (worker.py's own default) when omitted, so
+   * existing callers that don't send this are unaffected. */
+  @IsOptional()
+  @IsIn(SESSION_TYPES)
+  sessionType?: SessionType;
 }
 
 export class JoinInterviewDto {

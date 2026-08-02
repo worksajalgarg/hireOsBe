@@ -13,11 +13,22 @@ tracing, not yet implemented)" note for where that eventually belongs.
 """
 
 import json
+import os
 import time
 from pathlib import Path
 
 _AI_SERVICE_ROOT = Path(__file__).resolve().parent.parent.parent
 _DEV_DIR = _AI_SERVICE_ROOT / ".dev"
+
+
+def is_dev_metrics_enabled() -> bool:
+    """Gates every write in this module — moved here (from
+    voice_agent/dev_metrics.py, which re-exports it for existing callers)
+    since this is where the actual file-write decision belongs, and
+    model_gateway must not depend on voice_agent. See append_metric()'s
+    docstring for why this matters: it wasn't actually gating the LLM-call
+    JSONL file before, unlike the STT/TTS/EOU/VAD one."""
+    return os.environ.get("DEV_METRICS_ENABLED", "false").strip().lower() == "true"
 METRICS_LOG_PATH = _DEV_DIR / "model_gateway_metrics.jsonl"
 AGENT_METRICS_LOG_PATH = _DEV_DIR / "agent_metrics.jsonl"
 TRANSCRIPT_SNAPSHOT_PATH = _DEV_DIR / "live_transcript.json"
@@ -93,6 +104,15 @@ def reset_dev_metrics() -> None:
 
 
 def append_metric(record: dict) -> None:
+    """Writes to the dev-only LLM-metrics JSONL file — gated on
+    DEV_METRICS_ENABLED (previously this call was unconditional, unlike
+    append_agent_metric() below, which meant this file grew unbounded in
+    any environment, not just dev; see is_dev_metrics_enabled()'s
+    docstring). gateway.py's metrics_logger.info(...) call is the separate,
+    still-unconditional, production-safe aggregate-fields channel — this
+    file write is purely the local dev-dashboard artifact."""
+    if not is_dev_metrics_enabled():
+        return
     _append_jsonl(METRICS_LOG_PATH, record)
 
 

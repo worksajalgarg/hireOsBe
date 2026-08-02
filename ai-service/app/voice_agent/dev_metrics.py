@@ -21,21 +21,28 @@ hireOsBe/CLAUDE.md), and assumes the worker and dashboard share a local
 filesystem, which is only true on one dev machine.
 """
 
-import os
-
 from livekit.agents.voice import AgentSession, MetricsCollectedEvent
 
-from ..model_gateway.metrics_log import append_agent_metric
+from ..model_gateway.metrics_log import (
+    append_agent_metric,
+    is_dev_metrics_enabled,  # noqa: F401 -- re-exported for worker.py's existing import
+)
+from .latency_metrics import SpeechToSpeechCorrelator
 
 _CAPTURED_TYPES = {"stt_metrics", "tts_metrics", "eou_metrics", "vad_metrics"}
 
 
-def is_dev_metrics_enabled() -> bool:
-    return os.environ.get("DEV_METRICS_ENABLED", "false").strip().lower() == "true"
-
-
 def register_dev_metrics_listener(session: AgentSession, session_label: str) -> None:
+    # One correlator per session (not module-level) — speech_id correlation
+    # must never mix EOU/TTS events from two different concurrent interviews
+    # (each has its own AgentSession/listener registration).
+    correlator = SpeechToSpeechCorrelator()
+
     def _on_metrics_collected(ev: MetricsCollectedEvent) -> None:
+        if ev.metrics.type == "eou_metrics":
+            correlator.on_eou(ev.metrics)
+        elif ev.metrics.type == "tts_metrics":
+            correlator.on_tts(ev.metrics)
         if ev.metrics.type not in _CAPTURED_TYPES:
             return
         append_agent_metric({"session": session_label, **ev.metrics.model_dump()})

@@ -175,7 +175,9 @@ class GatewayLLMStream(llm.LLMStream):
         # chat_ctx message, not a parameter — without surfacing it, the
         # model gets no cue that this turn is a nudge/opening rather than a
         # normal continuation, and no real transcript to react to.
-        pending_instructions = extract_pending_instructions(self._chat_ctx)
+        pending_instructions = extract_pending_instructions(
+            self._chat_ctx, system_prompt=self._system_prompt
+        )
         if pending_instructions:
             user_prompt = (
                 f"[One-off instruction for this turn only: {pending_instructions}]\n\n"

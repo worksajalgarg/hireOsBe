@@ -8,11 +8,30 @@ conventions are kept aligned by hand.
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..model_gateway.providers import Provider
 
 DIRECT = "direct"
 LIVEKIT_INFERENCE = "livekit_inference"
+
+# ai-service/config/model_routing.yaml relative to this file's location
+# (app/voice_agent/config.py -> app/voice_agent -> app -> ai-service).
+_DEFAULT_ROUTING_CONFIG_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "model_routing.yaml"
+)
+
+# Voice-tuning defaults below match what was previously hardcoded/implicit —
+# see session.py's module docstring for _TTS_SPEED history, and
+# livekit-agents' AgentSession turn_handling defaults for the other two
+# (0.5s/3.0s endpointing, interruptions enabled) — these were always in
+# effect, just silently inherited from the framework rather than visible
+# here. Making them env vars doesn't change default behavior; it lets ops
+# tune them without a code deploy.
+DEFAULT_TTS_SPEED = 0.9
+DEFAULT_ENDPOINTING_MIN_DELAY_S = 0.5
+DEFAULT_ENDPOINTING_MAX_DELAY_S = 3.0
+DEFAULT_INTERRUPTIONS_ENABLED = True
 
 # Live-tested default as of today's session: a free OpenRouter model first
 # (Groq's daily token cap and Gemini's free-tier cap both got exhausted
@@ -37,6 +56,19 @@ class VoiceAgentSettings:
     # third — see model_gateway/use_case_policy.py's apply_provider_priority(),
     # called once at worker startup with this value (see worker.py's main()).
     llm_provider_priority: list[Provider]
+    # Path to the YAML file defining every use case's provider/model/timeout
+    # chain — see model_gateway/routing_config.py's load_routing_config(),
+    # called once at worker startup and reloaded per job dispatch (see
+    # worker.py). Overridable via ROUTING_CONFIG_PATH for tests/alternate envs.
+    routing_config_path: Path
+    # ElevenLabs voice_settings.speed override — see session.py's
+    # _TTS_VOICE_SETTINGS and module docstring.
+    tts_speed: float
+    # AgentSession turn_handling.endpointing overrides — see session.py.
+    endpointing_min_delay_s: float
+    endpointing_max_delay_s: float
+    # AgentSession turn_handling.interruption.enabled override — see session.py.
+    interruptions_enabled: bool
 
 
 def load_settings() -> VoiceAgentSettings:
@@ -69,6 +101,19 @@ def load_settings() -> VoiceAgentSettings:
         deepgram_api_key=deepgram_api_key,
         elevenlabs_api_key=elevenlabs_api_key,
         llm_provider_priority=_parse_llm_provider_priority(),
+        routing_config_path=Path(
+            os.environ.get("ROUTING_CONFIG_PATH", str(_DEFAULT_ROUTING_CONFIG_PATH))
+        ),
+        tts_speed=_parse_positive_float("VOICE_TTS_SPEED", DEFAULT_TTS_SPEED),
+        endpointing_min_delay_s=_parse_positive_float(
+            "VOICE_ENDPOINTING_MIN_DELAY_S", DEFAULT_ENDPOINTING_MIN_DELAY_S
+        ),
+        endpointing_max_delay_s=_parse_positive_float(
+            "VOICE_ENDPOINTING_MAX_DELAY_S", DEFAULT_ENDPOINTING_MAX_DELAY_S
+        ),
+        interruptions_enabled=_parse_bool(
+            "VOICE_INTERRUPTIONS_ENABLED", DEFAULT_INTERRUPTIONS_ENABLED
+        ),
     )
 
 
@@ -77,6 +122,31 @@ def _require(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required env var {name}")
     return value
+
+
+def _parse_positive_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise RuntimeError(f"{name} must be a number, got {raw!r}") from None
+    if value <= 0:
+        raise RuntimeError(f"{name} must be > 0, got {value}")
+    return value
+
+
+def _parse_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in ("true", "1", "yes"):
+        return True
+    if normalized in ("false", "0", "no"):
+        return False
+    raise RuntimeError(f"{name} must be true/false, got {raw!r}")
 
 
 def _parse_llm_provider_priority() -> list[Provider]:

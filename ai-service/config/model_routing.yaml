@@ -1,0 +1,157 @@
+# Per-use-case LLM routing chains — see app/model_gateway/routing_config.py
+# for the loader/validation and app/model_gateway/use_case_policy.py for the
+# ProviderChoice/UseCasePolicy shapes this file populates. This YAML is now
+# the auditable source of truth for "which provider/model handles which use
+# case, in what fallback order" — see docs/adr/0005-config-driven-model-routing.md
+# for why this replaced a hardcoded Python dict literal.
+#
+# Each use case has:
+#   chain: ordered list of tiers, each { provider, model, timeout_s? }
+#     - provider: one of openai, anthropic, gemini, groq, openrouter
+#     - model: the model name passed to that provider's client
+#     - timeout_s: optional first-chunk timeout override for streaming calls
+#       (see model_gateway/gateway.py's _FIRST_CHUNK_TIMEOUT_S default)
+#   rationale: why this chain/order was chosen — keep this current when you
+#     change a chain, it's what makes routing changes reviewable in a PR.
+#
+# Chains migrated verbatim from the previous USE_CASE_POLICIES dict literal —
+# this file is a pure refactor, not a routing-behavior change.
+
+role_intake_scorecard:
+  chain:
+    - provider: openrouter
+      model: anthropic/claude-sonnet-5
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: >
+    Large/complex tier: competency design and structured reasoning over
+    business context benefits from frontier-model quality. Routed via
+    OpenRouter to Claude Sonnet 5 since no OpenAI key is currently
+    available; Gemini flash as a same-availability fallback rather than
+    leaving this use case with no working path.
+
+resume_parsing:
+  chain:
+    - provider: groq
+      model: llama-3.1-8b-instant
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: >
+    Small/high-volume tier: structured extraction from a resume is well
+    within a small model's capability and runs per-candidate, so Groq's
+    small model (cheapest, fastest) is the primary; Gemini flash as
+    fallback for availability.
+
+evidence_matching:
+  chain:
+    - provider: groq
+      model: llama-3.3-70b-versatile
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: >
+    Medium tier: low-cost first pass over evidence-to-criteria matching,
+    escalate ambiguous/senior-role cases manually rather than routing to a
+    larger model automatically (no escalation tier wired up yet). Groq's
+    larger model balances quality and the pass's high call volume.
+
+interview_evaluation:
+  chain:
+    - provider: openrouter
+      model: anthropic/claude-sonnet-5
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: >
+    Large/complex tier: evaluating interview evidence against a fixed
+    rubric needs higher reasoning quality than a small/medium model
+    reliably gives — same tier as role_intake_scorecard.
+
+candidate_report:
+  chain:
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: >
+    Medium tier: generates an explanation only from already-stored
+    evidence and scores (no new judgment), so a mid-size model is
+    sufficient. Gemini flash primary, Groq's larger model as fallback.
+
+voice_interview_turn:
+  chain:
+    - provider: openrouter
+      model: nvidia/nemotron-3-nano-30b-a3b:free
+      timeout_s: 8.0
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: >
+    Realtime conversational turn generation for the Voice Interviewer (PRD
+    Section 7.1); bounded by voice_agent's system-prompt guardrails, no
+    scoring or rubric authority (ADR-0003). Reordered from pure Groq-first
+    latency optimization after live testing repeatedly exhausted Groq's
+    100k/day token cap and Gemini's 5 req/min free-tier cap simultaneously
+    during heavy dev testing, leaving the interview with no working
+    provider at all. A free-tier OpenRouter model (benchmarked live: ~1.6s
+    TTFT, reliable, decent conversational quality — see session notes) is
+    now first since it draws from neither quota; Gemini and Groq remain as
+    the 2nd/3rd tier for quality/latency once a real interview's volume is
+    nowhere near exhausting them. Revisit ordering (Groq first) once
+    Groq's tier/quota is raised for production, where latency matters more
+    than during rapid dev iteration — this is exactly what
+    VOICE_LLM_PROVIDER_PRIORITY (an env-var reorder, applied on top of this
+    file) is for. STT/TTS stay on Deepgram/ElevenLabs (audio-only, not a
+    reasoning surface — see voice_agent/gateway_llm.py's module docstring).
+
+voice_interview_summary:
+  chain:
+    - provider: openrouter
+      model: nvidia/nemotron-3-nano-30b-a3b:free
+      timeout_s: 8.0
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: >
+    Background conversation-memory consolidation for the Voice Interviewer
+    (see voice_agent/gateway_llm.py's rolling summary) — not
+    latency-critical, so the same quota-exhaustion reasoning as
+    voice_interview_turn applies even more directly here: this runs every
+    few turns regardless, so it's often what actually burns through
+    Gemini's per-minute cap first. Same reordering, same rationale. Same
+    boundaries as voice_interview_turn: no scoring, no rubric authority
+    (ADR-0003).
+
+role_discovery_turn:
+  chain:
+    - provider: openrouter
+      model: nvidia/nemotron-3-nano-30b-a3b:free
+      timeout_s: 8.0
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: >
+    Realtime conversational turn generation for the Hiring Manager
+    Discovery Agent (see voice_agent/discovery_llm.py) — same
+    quota-exhaustion reasoning and reordering as voice_interview_turn.
+    This agent only collects structured intake data; it never generates
+    or publishes a rubric itself (see hireOsBe/CLAUDE.md's Role Context
+    Agent boundary).
+
+role_discovery_extraction:
+  chain:
+    - provider: openrouter
+      model: nvidia/nemotron-3-nano-30b-a3b:free
+      timeout_s: 8.0
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: >
+    Background structured-field extraction for the Hiring Manager
+    Discovery Agent (see voice_agent/discovery_llm.py) — runs after every
+    single turn via model_gateway.run_structured(), so like
+    voice_interview_summary this is often what burns through a per-minute
+    quota first. Same reordering, same rationale. Extraction output is
+    intake data only — never a rubric or hiring decision.

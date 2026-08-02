@@ -19,12 +19,16 @@ conversation is actually conducted, for either persona.
 
 import json
 import logging
+from pathlib import Path
 
+from dotenv import load_dotenv
 from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
 from livekit.agents.job import AutoSubscribe
 
 from ..model_gateway.metrics_log import reset_dev_metrics
-from ..model_gateway.use_case_policy import apply_provider_priority
+from ..model_gateway.providers import Provider
+from ..model_gateway.routing_config import load_routing_config
+from ..model_gateway.use_case_policy import USE_CASE_POLICIES, apply_provider_priority
 from .config import load_settings
 from .controls import register_control_handlers
 from .conversation_start import register_silence_handling
@@ -56,6 +60,41 @@ _VOICE_LLM_USE_CASES = [
     "role_discovery_extraction",
 ]
 
+# Reloaded once per job dispatch (see entrypoint()) so a routing_config.yaml
+# edit takes effect for the next interview without a full worker restart —
+# not mid-interview (a chain mutated while a run_stream() call is in flight
+# is a real race), just at the next dispatch boundary. Cached by mtime so an
+# unchanged file is a cheap stat(), not a re-parse.
+#
+# entrypoint() calls load_settings() itself (below) rather than reading a
+# module global main() populated — livekit-agents dispatches jobs into a
+# pool of separate child processes (see this module's docstring and the
+# "initializing process" log lines at worker startup), each with its own
+# fresh import of this module, so a global set in main()'s process (the
+# supervisor) is never visible to entrypoint()'s process. Environment
+# variables ARE inherited by child processes, so load_settings() itself
+# works fine there — it's specifically Python-level module globals that
+# don't cross the boundary. (Confirmed the hard way: entrypoint() used to
+# gate this reload on such a global, silently skipping it in the child and
+# leaving USE_CASE_POLICIES empty — KeyError: "No routing policy defined
+# for use case 'voice_interview_turn'" on the first real interview turn.)
+_routing_config_mtime: float | None = None
+
+
+def _reload_routing_config_if_changed(path: Path, priority: list[Provider]) -> None:
+    global _routing_config_mtime
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        logger.warning("Routing config %s not found, keeping previously loaded policies", path)
+        return
+    if mtime == _routing_config_mtime:
+        return
+    USE_CASE_POLICIES.clear()
+    USE_CASE_POLICIES.update(load_routing_config(path))
+    apply_provider_priority(_VOICE_LLM_USE_CASES, priority)
+    _routing_config_mtime = mtime
+
 
 def _room_metadata(ctx: JobContext) -> dict:
     """Room metadata is set by platform/src/interviews/interviews.service.ts
@@ -82,6 +121,9 @@ async def entrypoint(ctx: JobContext) -> None:
     # anti-cheating surveillance, facial/emotion inference) and the
     # Responsible AI constraints section.
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+
+    settings = load_settings()
+    _reload_routing_config_if_changed(settings.routing_config_path, settings.llm_provider_priority)
 
     if is_dev_metrics_enabled():
         # One dashboard, one interview at a time locally — reset at the
@@ -123,11 +165,24 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 def main() -> None:
+    # Loaded first, before load_settings() below reads os.environ. Does NOT
+    # rely on the IDE/debugger's own envFile support — see app/main.py's
+    # matching comment for why (a debugpy+module-launch quirk left env vars
+    # unset even with envFile configured in launch.json). override=False
+    # (the default) means real deployment env vars always win over this file.
+    # Only covers this supervisor process — each job's child process (see
+    # entrypoint()) inherits the environment from here regardless, so it
+    # doesn't need its own load_dotenv() call.
+    load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
     settings = load_settings()  # fail fast if LIVEKIT_*/GEMINI_API_KEY/etc are missing
-    # Runtime-configurable provider order (VOICE_LLM_PROVIDER_PRIORITY — see
-    # config.py) applied once for the whole worker process lifetime, not
-    # per-call — same pattern as every other setting here.
-    apply_provider_priority(_VOICE_LLM_USE_CASES, settings.llm_provider_priority)
+    # Fail-fast validation of the routing config at supervisor startup, so a
+    # broken YAML is caught immediately rather than on the first dispatched
+    # job. This populates USE_CASE_POLICIES in the supervisor process only —
+    # entrypoint() (below) does the real per-job-process load, since that's
+    # a separate process this one doesn't share memory with.
+    _reload_routing_config_if_changed(
+        settings.routing_config_path, settings.llm_provider_priority
+    )
     cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
 
 

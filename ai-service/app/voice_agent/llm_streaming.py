@@ -59,25 +59,22 @@ def extract_transcript_lines(
     return lines
 
 
-def extract_pending_instructions(chat_ctx: llm.ChatContext) -> str | None:
+def extract_pending_instructions(
+    chat_ctx: llm.ChatContext, system_prompt: str | None = None
+) -> str | None:
     """Surfaces a one-off instruction the framework attached via
     AgentSession.generate_reply(instructions=...) — used for the opening
     greeting and silence nudges (see conversation_start.py). For a
     "stateless" LLM like ours, livekit-agents delivers this by injecting a
     system-role message into chat_ctx (generation.py's update_instructions),
-    not as a parameter our chat()/LLMStream ever sees. Without reading it
-    here, that instruction is silently dropped — the model gets called with
-    an unchanged transcript and no cue that this particular turn is a nudge
-    or an opening cue rather than a normal continuation, which is exactly
-    what let it free-run into inventing the other party's turn instead of
-    just checking in.
+    not as a parameter our chat()/LLMStream ever sees.
 
-    Deliberately not coupled to livekit-agents' private
-    INSTRUCTIONS_MESSAGE_ID constant (internal, may change) — any
-    system-role message appearing in chat_ctx.messages() must be one the
-    framework injected this way, since our own system prompt is passed to
-    model_gateway directly and never added to chat_ctx itself."""
+    If system_prompt is provided, any system message matching system_prompt
+    is skipped so the 10,000+ char system prompt isn't duplicated into
+    user_prompt on every turn."""
     for message in chat_ctx.messages():
         if message.role == "system" and message.text_content:
+            if system_prompt and message.text_content.strip() == system_prompt.strip():
+                continue
             return message.text_content
     return None

@@ -8,6 +8,16 @@ falling through to the next on any failure (including a too-slow first
 chunk — see gateway.py's _FIRST_CHUNK_TIMEOUT_S) until one succeeds or the
 chain is exhausted. Single-entry chains have no fallback at all.
 
+USE_CASE_POLICIES itself is populated at startup from
+config/model_routing.yaml (see routing_config.py's load_routing_config(),
+called once from voice_agent/worker.py's main() and app/main.py's startup
+hook) — the YAML file, not this module, is the auditable source of truth for
+which provider/model/timeout each use case's chain uses. See
+docs/adr/0005-config-driven-model-routing.md for why this replaced a
+hardcoded dict literal here. This module still owns the dataclasses,
+get_policy() lookup, and the apply_provider_priority() reordering primitive
+— only the population of USE_CASE_POLICIES moved out of Python source.
+
 Provider tiering (no working OpenAI key at present — Gemini/Groq/OpenRouter
 are the live providers):
 - small/high-volume, low-reasoning work -> Groq's small model (fastest, cheapest)
@@ -15,12 +25,13 @@ are the live providers):
 - large/complex reasoning               -> OpenRouter routed to a frontier
   model (Claude Sonnet 5) — the only path to top-tier reasoning quality
   without an OpenAI key
-- realtime voice turn generation        -> see the voice_interview_turn/
-  voice_interview_summary/role_discovery_* entries below for the current
-  live-tested ordering, which has shifted from pure latency-optimization
-  (Groq first) to prioritizing a free-tier OpenRouter model first, after
-  repeatedly exhausting Groq's daily token cap and Gemini's per-minute cap
-  simultaneously during heavy dev testing (see each entry's rationale).
+- realtime voice turn generation        -> see config/model_routing.yaml's
+  voice_interview_turn/voice_interview_summary/role_discovery_* entries for
+  the current live-tested ordering, which has shifted from pure
+  latency-optimization (Groq first) to prioritizing a free-tier OpenRouter
+  model first, after repeatedly exhausting Groq's daily token cap and
+  Gemini's per-minute cap simultaneously during heavy dev testing (see each
+  entry's rationale in the YAML).
 """
 
 from dataclasses import dataclass
@@ -55,150 +66,12 @@ class UseCasePolicy:
 
 # Final ranking deliberately has no entry here: PRD Section 7.2 / roadmap
 # Section 5 — final ranking uses no LLM at all, only deterministic scoring.
-USE_CASE_POLICIES: dict[str, UseCasePolicy] = {
-    "role_intake_scorecard": UseCasePolicy(
-        chain=[
-            ProviderChoice(Provider.OPENROUTER, "anthropic/claude-sonnet-5"),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-        ],
-        rationale=(
-            "Large/complex tier: competency design and structured reasoning "
-            "over business context benefits from frontier-model quality. "
-            "Routed via OpenRouter to Claude Sonnet 5 since no OpenAI key "
-            "is currently available; Gemini flash as a same-availability "
-            "fallback rather than leaving this use case with no working path."
-        ),
-    ),
-    "resume_parsing": UseCasePolicy(
-        chain=[
-            ProviderChoice(Provider.GROQ, "llama-3.1-8b-instant"),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-        ],
-        rationale=(
-            "Small/high-volume tier: structured extraction from a resume is "
-            "well within a small model's capability and runs per-candidate, "
-            "so Groq's small model (cheapest, fastest) is the primary; "
-            "Gemini flash as fallback for availability."
-        ),
-    ),
-    "evidence_matching": UseCasePolicy(
-        chain=[
-            ProviderChoice(Provider.GROQ, "llama-3.3-70b-versatile"),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-        ],
-        rationale=(
-            "Medium tier: low-cost first pass over evidence-to-criteria "
-            "matching, escalate ambiguous/senior-role cases manually rather "
-            "than routing to a larger model automatically (no escalation "
-            "tier wired up yet). Groq's larger model balances quality and "
-            "the pass's high call volume."
-        ),
-    ),
-    "interview_evaluation": UseCasePolicy(
-        chain=[
-            ProviderChoice(Provider.OPENROUTER, "anthropic/claude-sonnet-5"),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-        ],
-        rationale=(
-            "Large/complex tier: evaluating interview evidence against a "
-            "fixed rubric needs higher reasoning quality than a small/medium "
-            "model reliably gives — same tier as role_intake_scorecard."
-        ),
-    ),
-    "candidate_report": UseCasePolicy(
-        chain=[
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-            ProviderChoice(Provider.GROQ, "llama-3.3-70b-versatile"),
-        ],
-        rationale=(
-            "Medium tier: generates an explanation only from already-stored "
-            "evidence and scores (no new judgment), so a mid-size model is "
-            "sufficient. Gemini flash primary, Groq's larger model as fallback."
-        ),
-    ),
-    "voice_interview_turn": UseCasePolicy(
-        chain=[
-            ProviderChoice(
-                Provider.OPENROUTER, "nvidia/nemotron-3-nano-30b-a3b:free", timeout_s=8.0
-            ),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-            ProviderChoice(Provider.GROQ, "llama-3.3-70b-versatile"),
-        ],
-        rationale=(
-            "Realtime conversational turn generation for the Voice "
-            "Interviewer (PRD Section 7.1); bounded by voice_agent's "
-            "system-prompt guardrails, no scoring or rubric authority "
-            "(ADR-0003). Reordered from pure Groq-first latency optimization "
-            "after live testing repeatedly exhausted Groq's 100k/day token "
-            "cap and Gemini's 5 req/min free-tier cap *simultaneously* during "
-            "heavy dev testing, leaving the interview with no working "
-            "provider at all. A free-tier OpenRouter model (benchmarked live: "
-            "~1.6s TTFT, reliable, decent conversational quality — see "
-            "session notes) is now first since it draws from neither quota; "
-            "Gemini and Groq remain as the 2nd/3rd tier for quality/latency "
-            "once a real interview's volume is nowhere near exhausting them. "
-            "Revisit ordering (Groq first) once Groq's tier/quota is raised "
-            "for production, where latency matters more than during rapid "
-            "dev iteration. STT/TTS stay on Deepgram/ElevenLabs (audio-only, "
-            "not a reasoning surface — see voice_agent/gateway_llm.py's "
-            "module docstring)."
-        ),
-    ),
-    "voice_interview_summary": UseCasePolicy(
-        chain=[
-            ProviderChoice(
-                Provider.OPENROUTER, "nvidia/nemotron-3-nano-30b-a3b:free", timeout_s=8.0
-            ),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-            ProviderChoice(Provider.GROQ, "llama-3.3-70b-versatile"),
-        ],
-        rationale=(
-            "Background conversation-memory consolidation for the Voice "
-            "Interviewer (see voice_agent/gateway_llm.py's rolling summary) "
-            "— not latency-critical, so the same quota-exhaustion reasoning "
-            "as voice_interview_turn applies even more directly here: this "
-            "runs every few turns regardless, so it's often what actually "
-            "burns through Gemini's per-minute cap first. Same reordering, "
-            "same rationale. Same boundaries as voice_interview_turn: no "
-            "scoring, no rubric authority (ADR-0003)."
-        ),
-    ),
-    "role_discovery_turn": UseCasePolicy(
-        chain=[
-            ProviderChoice(
-                Provider.OPENROUTER, "nvidia/nemotron-3-nano-30b-a3b:free", timeout_s=8.0
-            ),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-            ProviderChoice(Provider.GROQ, "llama-3.3-70b-versatile"),
-        ],
-        rationale=(
-            "Realtime conversational turn generation for the Hiring Manager "
-            "Discovery Agent (see voice_agent/discovery_llm.py) — same "
-            "quota-exhaustion reasoning and reordering as voice_interview_turn. "
-            "This agent only collects structured intake data; it never "
-            "generates or publishes a rubric itself (see hireOsBe/CLAUDE.md's "
-            "Role Context Agent boundary)."
-        ),
-    ),
-    "role_discovery_extraction": UseCasePolicy(
-        chain=[
-            ProviderChoice(
-                Provider.OPENROUTER, "nvidia/nemotron-3-nano-30b-a3b:free", timeout_s=8.0
-            ),
-            ProviderChoice(Provider.GEMINI, "gemini-flash-latest"),
-            ProviderChoice(Provider.GROQ, "llama-3.3-70b-versatile"),
-        ],
-        rationale=(
-            "Background structured-field extraction for the Hiring Manager "
-            "Discovery Agent (see voice_agent/discovery_llm.py) — runs after "
-            "every single turn via model_gateway.run_structured(), so like "
-            "voice_interview_summary this is often what burns through a "
-            "per-minute quota first. Same reordering, same rationale. "
-            "Extraction output is intake data only — never a rubric or "
-            "hiring decision."
-        ),
-    ),
-}
+#
+# Populated at startup by routing_config.load_routing_config() (see
+# voice_agent/worker.py's main() and app/main.py's startup hook) from
+# config/model_routing.yaml — empty until that call runs. Tests populate it
+# via tests/conftest.py's autouse fixture.
+USE_CASE_POLICIES: dict[str, UseCasePolicy] = {}
 
 
 def get_policy(use_case: str) -> UseCasePolicy:

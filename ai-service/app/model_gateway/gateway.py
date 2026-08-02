@@ -73,7 +73,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from .metrics_log import append_metric
+from .metrics_log import append_metric, is_dev_metrics_enabled
 from .providers import Provider, get_provider_client
 from .use_case_policy import ProviderChoice, UseCasePolicy, get_policy
 
@@ -101,7 +101,21 @@ def _log_metrics(
     used_fallback: bool = False,
     interrupted: bool = False,
     context_detail: dict | None = None,
+    retries_used: int | None = None,
+    system_prompt: str | None = None,
+    user_prompt: str | None = None,
+    output_text: str | None = None,
 ) -> None:
+    if is_dev_metrics_enabled():
+        ctx = dict(context_detail) if context_detail else {}
+        if system_prompt is not None and "system_prompt" not in ctx:
+            ctx["system_prompt"] = system_prompt
+        if user_prompt is not None and "user_prompt" not in ctx:
+            ctx["user_prompt"] = user_prompt
+        if output_text is not None and "output_text" not in ctx:
+            ctx["output_text"] = output_text
+        context_detail = ctx if ctx else None
+
     record = {
         "use_case": use_case,
         "provider": provider.value,
@@ -114,6 +128,11 @@ def _log_metrics(
         "used_fallback": used_fallback,
         "interrupted": interrupted,
         "context_detail": context_detail,
+        # run_structured only: how many of _structured_attempt's 2 tries on
+        # the *winning* tier were needed (0 = succeeded first try). A
+        # provider whose JSON-mode reliability degrades but still succeeds
+        # on retry was previously invisible here — only a warning log line.
+        "retries_used": retries_used,
     }
     metrics_logger.info("model_gateway turn completed", extra=record)
     append_metric(record)
@@ -151,6 +170,7 @@ class ModelGateway:
                 use_case=use_case, provider=choice.provider, model=choice.model,
                 context_chars=context_chars, latency_s=time.monotonic() - start,
                 output_chars=len(result), used_fallback=tier > 0, context_detail=context_detail,
+                system_prompt=system_prompt, user_prompt=user_prompt, output_text=result,
             )
             return result
         if last_exc is not None:
@@ -168,14 +188,16 @@ class ModelGateway:
     ) -> _SchemaT:
         policy = get_policy(use_case)
         context_chars = len(system_prompt) + len(user_prompt)
-        parsed, choice, latency_s, tier = await self._structured_chain(
+        parsed, choice, latency_s, tier, retries_used = await self._structured_chain(
             use_case, policy, system_prompt=system_prompt, user_prompt=user_prompt, schema=schema,
         )
         _log_metrics(
             use_case=use_case, provider=choice.provider, model=choice.model,
             context_chars=context_chars, latency_s=latency_s,
             output_chars=len(parsed.model_dump_json()), used_fallback=tier > 0,
-            context_detail=context_detail,
+            context_detail=context_detail, retries_used=retries_used,
+            system_prompt=system_prompt, user_prompt=user_prompt,
+            output_text=parsed.model_dump_json(),
         )
         return parsed
 
@@ -187,14 +209,14 @@ class ModelGateway:
         system_prompt: str,
         user_prompt: str,
         schema: type[_SchemaT],
-    ) -> tuple[_SchemaT, ProviderChoice, float, int]:
+    ) -> tuple[_SchemaT, ProviderChoice, float, int, int]:
         for tier, choice in enumerate(policy.chain):
             start = time.monotonic()
-            parsed = await self._structured_attempt(
+            parsed, retries_used = await self._structured_attempt(
                 choice.provider, choice.model, system_prompt, user_prompt, schema
             )
             if parsed is not None:
-                return parsed, choice, time.monotonic() - start, tier
+                return parsed, choice, time.monotonic() - start, tier, retries_used
             is_last = tier == len(policy.chain) - 1
             if not is_last:
                 logger.warning(
@@ -214,24 +236,26 @@ class ModelGateway:
         system_prompt: str,
         user_prompt: str,
         schema: type[_SchemaT],
-    ) -> _SchemaT | None:
+    ) -> tuple[_SchemaT | None, int]:
         """Exactly one retry (two attempts total) per chain tier — a single
         transient malformed response shouldn't force skipping straight to
         the next (often weaker-tiered, for some use cases) provider, but
-        repeated failures should."""
+        repeated failures should. Returns (result, retries_used) so a
+        success on attempt 2 — a provider whose JSON-mode reliability is
+        degrading — is visible in metrics, not just a warning log line."""
         client = get_provider_client(provider, model)
         for attempt in range(2):
             try:
                 raw = await client.complete_json(
                     system_prompt=system_prompt, user_prompt=user_prompt
                 )
-                return schema.model_validate_json(raw)
+                return schema.model_validate_json(raw), attempt
             except Exception:
                 logger.warning(
                     "structured output attempt %d/2 failed for provider %s",
                     attempt + 1, provider.value, exc_info=True,
                 )
-        return None
+        return None, 0
 
     async def run_stream(
         self,
@@ -300,11 +324,13 @@ class ModelGateway:
 
         ttft = time.monotonic() - start
         output_chars = len(first_chunk)
+        stream_chunks = [first_chunk]
         interrupted = True
         try:
             yield first_chunk
             async for chunk in stream:
                 output_chars += len(chunk)
+                stream_chunks.append(chunk)
                 yield chunk
             interrupted = False
         finally:
@@ -313,6 +339,8 @@ class ModelGateway:
                 context_chars=context_chars, latency_s=time.monotonic() - start,
                 output_chars=output_chars, ttft_s=ttft, used_fallback=tier > 0,
                 interrupted=interrupted, context_detail=context_detail,
+                system_prompt=system_prompt, user_prompt=user_prompt,
+                output_text="".join(stream_chunks),
             )
 
 

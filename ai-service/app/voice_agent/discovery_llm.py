@@ -185,7 +185,9 @@ class DiscoveryLLMStream(llm.LLMStream):
         # same reasoning as gateway_llm.py: without this, a nudge/opening
         # generate_reply(instructions=...) call is indistinguishable from a
         # normal continuation, which is how the model ends up free-running.
-        pending_instructions = extract_pending_instructions(self._chat_ctx)
+        pending_instructions = extract_pending_instructions(
+            self._chat_ctx, system_prompt=self._system_prompt
+        )
         if pending_instructions:
             user_prompt = (
                 f"[One-off instruction for this turn only: {pending_instructions}]\n\n"

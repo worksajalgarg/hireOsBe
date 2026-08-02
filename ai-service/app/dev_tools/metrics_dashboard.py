@@ -38,7 +38,7 @@ _PAGE = """<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Model Gateway — Live Metrics</title>
+<title>Model Gateway — Live Metrics & Prompt History</title>
 <style>
   :root { color-scheme: light dark; }
   body { font-family: ui-monospace, "SF Mono", Consolas, monospace; margin: 0; padding: 24px;
@@ -59,10 +59,19 @@ _PAGE = """<!doctype html>
   .p-gemini { background: #2a2f57; color: #9db2ff; }
   .p-openrouter { background: #4a2f1f; color: #ffb774; }
   .p-openai { background: #1f3a4a; color: #74d4ff; }
+  .uc-badge { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11px; font-weight: 500; font-family: monospace; }
+  .uc-voice_interview_turn { background: #1a2736; color: #8fb8ff; border: 1px solid #2d4263; }
+  .uc-voice_interview_summary { background: #2b2518; color: #ffd166; border: 1px solid #5c4720; }
+  .uc-role_discovery_turn { background: #1f332b; color: #06d6a0; border: 1px solid #236952; }
+  .uc-role_discovery_extraction { background: #2d1e36; color: #ef476f; border: 1px solid #592d6b; }
+  .search-bar { display: flex; gap: 10px; margin-bottom: 12px; align-items: center; }
+  .search-input { background: #111a24; border: 1px solid #1c2530; color: #d8e0e8; padding: 6px 12px; border-radius: 6px; font-size: 13px; width: 340px; }
+  .search-input:focus { outline: none; border-color: #8fb8ff; }
   .t-stt_metrics { background: #2a2f57; color: #9db2ff; }
   .t-tts_metrics { background: #1f3a2e; color: #6fe3a0; }
   .t-eou_metrics { background: #4a2f1f; color: #ffb774; }
   .t-vad_metrics { background: #3a1f4a; color: #d19bff; }
+  .t-speech_to_speech { background: #1f4a3a; color: #6fe3c9; }
   .fallback { color: #ff8a8a; font-weight: 600; }
   .interrupted { color: #ffcf6b; }
   .ttft-good { color: #6fe3a0; }
@@ -74,11 +83,15 @@ _PAGE = """<!doctype html>
   .dot.paused { background: #6b7785; animation: none; }
   .dot.error { background: #ff8a8a; animation: none; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-  .detail-row td { background: #0e141b; padding: 14px 20px; white-space: normal; }
-  .detail-block { margin-bottom: 12px; }
-  .detail-label { color: #6b7785; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
-  .detail-lines { white-space: pre-wrap; line-height: 1.5; color: #c3ccd4; }
-  .detail-summary { white-space: pre-wrap; line-height: 1.5; color: #ffcf6b; }
+  .detail-row td { background: #0e141b; padding: 16px 20px; white-space: normal; }
+  .detail-block { margin-bottom: 14px; }
+  .detail-label { color: #8fb8ff; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .detail-code { background: #070b0f; border: 1px solid #1c2530; border-radius: 6px; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 380px; overflow-y: auto; line-height: 1.5; margin-top: 4px; }
+  .prompt-system { border-left: 3px solid #8fb8ff; color: #c8d8f8; }
+  .prompt-user { border-left: 3px solid #ffb774; color: #f8e0c8; }
+  .prompt-output { border-left: 3px solid #6fe3a0; color: #d0f8e0; background: #071510; }
+  .detail-lines { white-space: pre-wrap; line-height: 1.5; color: #c3ccd4; background: #090d12; padding: 10px 12px; border-radius: 6px; border: 1px solid #18222d; }
+  .detail-summary { white-space: pre-wrap; line-height: 1.5; color: #ffcf6b; background: #14110b; padding: 10px 12px; border-radius: 6px; border: 1px solid #2d2415; }
   .bubbles { display: flex; flex-direction: column; gap: 10px; max-width: 720px; }
   .bubble { padding: 8px 14px; border-radius: 12px; font-size: 13px; line-height: 1.4; max-width: 80%; }
   .bubble.candidate { align-self: flex-start; background: #1c2530; color: #d8e0e8; }
@@ -88,7 +101,7 @@ _PAGE = """<!doctype html>
 </style>
 </head>
 <body>
-  <h1><span class="dot" id="live-dot"></span>Model Gateway — Live Metrics</h1>
+  <h1><span class="dot" id="live-dot"></span>Model Gateway — Live Metrics & Prompt History</h1>
   <div class="sub" id="status-line">Connecting…</div>
 
   <div class="tabs">
@@ -98,6 +111,10 @@ _PAGE = """<!doctype html>
   </div>
 
   <div class="panel active" id="panel-llm">
+    <div class="search-bar">
+      <input type="text" id="llm-search" class="search-input" placeholder="Search calls (use case, model, prompt text)..." oninput="filterLlmRows()">
+      <span class="sub" id="llm-count-label" style="margin-bottom:0;"></span>
+    </div>
     <table>
       <thead>
         <tr>
@@ -150,29 +167,96 @@ let lastAgentTs = 0;
 let lastTranscriptUpdatedAt = null;
 
 async function fetchDetail(ts, targetEl) {
-  targetEl.innerHTML = '<div class="empty">Loading…</div>';
+  targetEl.innerHTML = '<div class="empty">Loading context & prompt details…</div>';
   try {
     const res = await fetch(`/dev/metrics/data/detail?ts=${ts}`);
     const d = await res.json();
     if (!d) { targetEl.innerHTML = '<div class="empty">No context detail captured for this turn.</div>'; return; }
-    const lines = (d.recent_window_lines || []).map(esc).join("\\n");
-    targetEl.innerHTML = `
-      <div class="detail-block">
-        <div class="detail-label">Session</div>
-        <div>${esc(d.session)}</div>
-      </div>
-      <div class="detail-block">
-        <div class="detail-label">Recent window (${(d.recent_window_lines || []).length} lines, sent verbatim)</div>
-        <div class="detail-lines">${lines || "(none)"}</div>
-      </div>
-      <div class="detail-block">
-        <div class="detail-label">Rolling summary (covers ${d.summarized_line_count || 0} earlier lines)</div>
-        <div class="detail-summary">${esc(d.summary) || "(none yet)"}</div>
-      </div>
-    `;
+    
+    let html = '';
+    if (d.session) {
+      html += `
+        <div class="detail-block">
+          <div class="detail-label">Session ID</div>
+          <div style="font-size:12px; color:#8fb8ff;">${esc(d.session)}</div>
+        </div>
+      `;
+    }
+    
+    if (d.system_prompt) {
+      html += `
+        <div class="detail-block">
+          <div class="detail-label">System Prompt (${d.system_prompt.length} chars)</div>
+          <div class="detail-code prompt-system">${esc(d.system_prompt)}</div>
+        </div>
+      `;
+    }
+    
+    if (d.user_prompt) {
+      html += `
+        <div class="detail-block">
+          <div class="detail-label">User Prompt (${d.user_prompt.length} chars)</div>
+          <div class="detail-code prompt-user">${esc(d.user_prompt)}</div>
+        </div>
+      `;
+    }
+    
+    if (d.output_text) {
+      html += `
+        <div class="detail-block">
+          <div class="detail-label">LLM Generated Response (${d.output_text.length} chars)</div>
+          <div class="detail-code prompt-output">${esc(d.output_text)}</div>
+        </div>
+      `;
+    }
+
+    if (d.recent_window_lines && d.recent_window_lines.length > 0) {
+      const lines = d.recent_window_lines.map(esc).join("\\n");
+      html += `
+        <div class="detail-block">
+          <div class="detail-label">Recent Conversation Window (${d.recent_window_lines.length} lines)</div>
+          <div class="detail-lines">${lines}</div>
+        </div>
+      `;
+    }
+
+    if (d.summary) {
+      html += `
+        <div class="detail-block">
+          <div class="detail-label">Rolling Summary (covers ${d.summarized_line_count || 0} earlier lines)</div>
+          <div class="detail-summary">${esc(d.summary)}</div>
+        </div>
+      `;
+    }
+
+    targetEl.innerHTML = html || '<div class="empty">No prompt or context details available.</div>';
   } catch (e) {
     targetEl.innerHTML = '<div class="empty">Failed to load detail.</div>';
   }
+}
+
+function filterLlmRows() {
+  const q = (document.getElementById("llm-search")?.value || "").toLowerCase();
+  let count = 0;
+  document.querySelectorAll("#llm-rows tr.row").forEach(tr => {
+    const text = tr.textContent.toLowerCase();
+    const rowId = tr.dataset.rowId;
+    const detailRow = document.querySelector(`tr[data-detail-for="${rowId}"]`);
+    if (!q || text.includes(q)) {
+      tr.style.display = "table-row";
+      count++;
+    } else {
+      tr.style.display = "none";
+      if (detailRow) detailRow.style.display = "none";
+    }
+  });
+  const label = document.getElementById("llm-count-label");
+  if (label) label.textContent = q ? `${count} matching call(s)` : "";
+}
+
+function ucBadgeClass(uc) {
+  if (!uc) return "uc-badge";
+  return `uc-badge uc-${esc(uc)}`;
 }
 
 function llmRowHtml(r, rowId) {
@@ -183,7 +267,7 @@ function llmRowHtml(r, rowId) {
   return `<tr class="row" data-row-id="${rowId}" data-ts="${r.ts}" data-has-detail="${!!r.has_detail}">
     <td>${arrow}</td>
     <td>${fmtTime(r.ts)}</td>
-    <td>${esc(r.use_case)}</td>
+    <td><span class="${ucBadgeClass(r.use_case)}">${esc(r.use_case)}</span></td>
     <td><span class="badge p-${esc(r.provider)}">${esc(r.provider)}</span></td>
     <td>${esc(r.model) || "-"}</td>
     <td>${r.approx_context_tokens}</td>
@@ -216,6 +300,7 @@ function addLlmRow(r) {
   tbody.insertAdjacentHTML("afterbegin", llmRowHtml(r, rowId));
   bindRowClick(tbody.querySelector(`tr[data-row-id="${rowId}"]`));
   lastLlmTs = Math.max(lastLlmTs, r.ts);
+  filterLlmRows();
 }
 
 function agentKeyTimings(r) {
@@ -228,9 +313,15 @@ function agentKeyTimings(r) {
       return `eou_delay=${(r.end_of_utterance_delay ?? 0).toFixed(2)}s · transcription=${(r.transcription_delay ?? 0).toFixed(2)}s`;
     case "vad_metrics":
       return `idle=${(r.idle_time ?? 0).toFixed(2)}s · inferences=${r.inference_count}`;
+    case "speech_to_speech":
+      return `speech→speech=${(r.speech_to_speech_s ?? 0).toFixed(2)}s`;
     default:
       return "-";
   }
+}
+
+function agentBadgeLabel(type) {
+  return type === "speech_to_speech" ? "s2s" : type.replace("_metrics", "");
 }
 
 function addAgentRow(r) {
@@ -238,7 +329,7 @@ function addAgentRow(r) {
   if (tbody.querySelector(".empty")) tbody.innerHTML = "";
   tbody.insertAdjacentHTML("afterbegin", `<tr>
     <td>${fmtTime(r.ts)}</td>
-    <td><span class="badge t-${esc(r.type)}">${esc(r.type).replace("_metrics", "")}</span></td>
+    <td><span class="badge t-${esc(r.type)}">${esc(agentBadgeLabel(r.type))}</span></td>
     <td>${esc(r.label) || "-"}</td>
     <td>${agentKeyTimings(r)}</td>
   </tr>`);

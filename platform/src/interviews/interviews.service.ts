@@ -59,7 +59,7 @@ export class InterviewsService {
     let promptSnapshotJson: Record<string, unknown> | undefined = undefined;
 
     const db = this.prisma as unknown as {
-      promptTemplate: {
+      promptTemplate?: {
         findFirst(args: { where: Record<string, unknown> }): Promise<{
           id: string;
           title: string;
@@ -71,16 +71,60 @@ export class InterviewsService {
       };
     };
 
-    let template = params.promptId
-      ? await db.promptTemplate.findFirst({
-          where: { id: params.promptId },
-        })
-      : null;
+    type PromptTemplateRecord = {
+      id: string;
+      title: string;
+      conversationFlow?: string | null;
+      openingInstructions?: string | null;
+      silenceInstructions?: string | null;
+      systemBoundaries?: string | null;
+    };
 
-    if (!template) {
-      template = await db.promptTemplate.findFirst({
-        where: { isDefault: true },
-      });
+    let template: PromptTemplateRecord | null = null;
+
+    if (db.promptTemplate?.findFirst) {
+      template = params.promptId
+        ? await db.promptTemplate.findFirst({
+            where: { id: params.promptId },
+          })
+        : null;
+
+      if (!template) {
+        template = await db.promptTemplate.findFirst({
+          where: { isDefault: true },
+        });
+      }
+    } else {
+      try {
+        if (params.promptId) {
+          const rows = await this.prisma.$queryRaw<any[]>`
+            SELECT id, title,
+                   conversation_flow as "conversationFlow",
+                   opening_instructions as "openingInstructions",
+                   silence_instructions as "silenceInstructions",
+                   system_boundaries as "systemBoundaries"
+            FROM prompt_templates
+            WHERE id = ${params.promptId}
+            LIMIT 1
+          `;
+          if (rows && rows.length > 0) template = rows[0];
+        }
+        if (!template) {
+          const rows = await this.prisma.$queryRaw<any[]>`
+            SELECT id, title,
+                   conversation_flow as "conversationFlow",
+                   opening_instructions as "openingInstructions",
+                   silence_instructions as "silenceInstructions",
+                   system_boundaries as "systemBoundaries"
+            FROM prompt_templates
+            WHERE is_default = true
+            LIMIT 1
+          `;
+          if (rows && rows.length > 0) template = rows[0];
+        }
+      } catch {
+        // Table prompt_templates might not exist or raw query failed; template stays null
+      }
     }
 
     if (template) {
@@ -96,17 +140,52 @@ export class InterviewsService {
 
     const roomName = `interview-${randomUUID()}`;
     const inviteToken = randomBytes(32).toString("hex");
-    const session = await this.prisma.interviewSession.create({
-      data: {
-        tenantId: params.tenantId,
-        candidateRef: params.candidateRef,
-        promptId: params.promptId,
-        promptSnapshotJson: promptSnapshotJson ?? undefined,
-        roomName,
-        inviteTokenHash: this.hashToken(inviteToken),
-        inviteExpiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
-      } as unknown as Prisma.InterviewSessionCreateInput,
-    });
+    const sessionData: Record<string, unknown> = {
+      tenantId: params.tenantId,
+      candidateRef: params.candidateRef,
+      roomName,
+      inviteTokenHash: this.hashToken(inviteToken),
+      inviteExpiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
+    };
+    if (params.promptId) {
+      sessionData.promptId = params.promptId;
+    }
+    if (promptSnapshotJson !== undefined) {
+      sessionData.promptSnapshotJson = promptSnapshotJson;
+    }
+
+    let session: { id: string };
+    try {
+      session = await this.prisma.interviewSession.create({
+        data: sessionData as Prisma.InterviewSessionCreateInput,
+      });
+    } catch (err: any) {
+      if (
+        err?.message?.includes("Unknown argument `promptId`") ||
+        err?.message?.includes("Unknown argument `promptSnapshotJson`")
+      ) {
+        delete sessionData.promptId;
+        delete sessionData.promptSnapshotJson;
+        session = await this.prisma.interviewSession.create({
+          data: sessionData as Prisma.InterviewSessionCreateInput,
+        });
+        try {
+          if (params.promptId || promptSnapshotJson) {
+            const snapshotStr = promptSnapshotJson ? JSON.stringify(promptSnapshotJson) : null;
+            await this.prisma.$executeRaw`
+              UPDATE interview_sessions
+              SET prompt_id = ${params.promptId ?? null},
+                  prompt_snapshot_json = ${snapshotStr}::jsonb
+              WHERE id = ${session.id}
+            `;
+          }
+        } catch {
+          // Ignore if prompt_id / prompt_snapshot_json columns don't exist in DB schema
+        }
+      } else {
+        throw err;
+      }
+    }
 
     const sessionType = params.sessionType ?? DEFAULT_SESSION_TYPE;
     const metadataSignature = signRoomMetadata(this.internalServiceSecret(), {

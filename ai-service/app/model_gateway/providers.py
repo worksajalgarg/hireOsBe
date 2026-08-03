@@ -6,10 +6,13 @@ google-generativeai, ...) directly — see docs/adr/0002-model-gateway-boundary.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
+import threading
 from enum import Enum
+from typing import Any
 
 from app.config import get_settings
 
@@ -19,6 +22,7 @@ class Provider(str, Enum):
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
     MOCK = "mock"
+    LOCAL = "local"
 
 
 class ProviderClient:
@@ -178,6 +182,135 @@ class GeminiProviderClient(ProviderClient):
         return content
 
 
+_local_lock = threading.Lock()
+_local_tokenizer: Any = None
+_local_model: Any = None
+_local_model_id: str | None = None
+_local_device: str | None = None
+
+
+def _resolve_local_device(requested: str) -> str:
+    import torch
+
+    choice = (requested or "auto").strip().lower()
+    if choice == "auto":
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+    if choice in ("mps", "cuda", "cpu"):
+        if choice == "mps" and not torch.backends.mps.is_available():
+            return "cpu"
+        if choice == "cuda" and not torch.cuda.is_available():
+            return "cpu"
+        return choice
+    return "cpu"
+
+
+def _ensure_local_model(model_id: str, device_pref: str) -> tuple[Any, Any, str]:
+    """Lazy-load tokenizer + causal LM (thread-safe singleton)."""
+    global _local_tokenizer, _local_model, _local_model_id, _local_device
+
+    with _local_lock:
+        device = _resolve_local_device(device_pref)
+        if (
+            _local_model is not None
+            and _local_tokenizer is not None
+            and _local_model_id == model_id
+            and _local_device == device
+        ):
+            return _local_tokenizer, _local_model, device
+
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+        dtype = torch.float16 if device in ("mps", "cuda") else torch.float32
+        try:
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                trust_remote_code=True,
+                dtype=dtype,
+            )
+        except TypeError:
+            # Older transformers used torch_dtype=
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+            )
+        model.to(device)
+        model.eval()
+
+        _local_tokenizer = tokenizer
+        _local_model = model
+        _local_model_id = model_id
+        _local_device = device
+        return tokenizer, model, device
+
+
+def _build_local_prompt(tokenizer: Any, system_prompt: str, user_prompt: str) -> str:
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    if hasattr(tokenizer, "apply_chat_template") and getattr(
+        tokenizer, "chat_template", None
+    ):
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    return f"System:\n{system_prompt}\n\nUser:\n{user_prompt}\n\nAssistant:\n"
+
+
+def _generate_local_sync(*, system_prompt: str, user_prompt: str) -> str:
+    import torch
+
+    get_settings.cache_clear()
+    settings = get_settings()
+    model_id = (settings.local_llm_model or "Qwen/Qwen2.5-0.5B-Instruct").strip()
+    tokenizer, model, device = _ensure_local_model(
+        model_id,
+        settings.local_llm_device,
+    )
+
+    prompt = _build_local_prompt(tokenizer, system_prompt, user_prompt)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    prompt_len = int(inputs["input_ids"].shape[-1])
+
+    with torch.no_grad():
+        output_ids = model.generate(
+            **inputs,
+            max_new_tokens=settings.local_llm_max_new_tokens,
+            do_sample=False,
+            pad_token_id=getattr(tokenizer, "eos_token_id", None),
+        )
+
+    generated = output_ids[0][prompt_len:]
+    text = tokenizer.decode(generated, skip_special_tokens=True).strip()
+    if not text:
+        raise RuntimeError("Local transformers model returned an empty completion")
+    return text
+
+
+class LocalTransformersProviderClient(ProviderClient):
+    """Local instruct model via transformers + torch (Mac MPS / CUDA / CPU)."""
+
+    def __init__(self) -> None:
+        super().__init__(Provider.LOCAL)
+
+    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+        return await asyncio.to_thread(
+            _generate_local_sync,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+
 def is_llm_quota_error(exc: BaseException) -> bool:
     """True for Gemini/OpenAI-compatible rate-limit or quota exhaustion errors."""
     text = f"{type(exc).__name__} {exc}".lower()
@@ -199,6 +332,8 @@ def get_provider_client(provider: Provider) -> ProviderClient:
     mode = (settings.llm_mode or "mock").strip().lower()
     if mode == "mock":
         return MockProviderClient()
+    if mode == "local" or provider == Provider.LOCAL:
+        return LocalTransformersProviderClient()
     if mode == "gemini" or provider == Provider.GEMINI:
         return GeminiProviderClient()
     if mode in ("openrouter", "openai") or provider == Provider.OPENAI:

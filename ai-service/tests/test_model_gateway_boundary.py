@@ -8,7 +8,15 @@ regressions once openai/anthropic/google client libraries are added.
 import ast
 from pathlib import Path
 
-PROVIDER_MODULE_PREFIXES = ("openai", "anthropic", "google.generativeai", "google.genai")
+PROVIDER_MODULE_PREFIXES = (
+    "openai",
+    "anthropic",
+    "google.generativeai",
+    "google.genai",
+    "transformers",
+    "torch",
+    "accelerate",
+)
 APP_ROOT = Path(__file__).resolve().parent.parent / "app"
 ALLOWED_DIR = APP_ROOT / "model_gateway"
 

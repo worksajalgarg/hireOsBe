@@ -27,13 +27,18 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4o-mini"
     # Cap completion size (OpenRouter free/low credit accounts reject high defaults).
     openai_max_tokens: int = Field(default=512, ge=64, le=8192)
-    # mock | openrouter | gemini
+    # mock | openrouter | gemini | local
     llm_mode: str = "mock"
     gemini_model: str = "gemini-2.0-flash-lite"
-    # When true, gemini/openrouter failures fall back to mock so the pipeline can finish
+    # When true, gemini/openrouter/local failures fall back to mock so the pipeline can finish
     llm_fallback_to_mock: bool = True
     # Docling: force OCR on every PDF page (slower; useful for scanned resumes)
     docling_force_full_page_ocr: bool = False
+    # Local transformers instruct model (LLM_MODE=local)
+    local_llm_model: str = "Qwen/Qwen2.5-3B-Instruct"
+    local_llm_max_new_tokens: int = Field(default=2048, ge=64, le=8192)
+    # auto | mps | cuda | cpu
+    local_llm_device: str = "auto"
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -24,6 +24,8 @@ class ModelGateway:
         mode = (settings.llm_mode or "mock").strip().lower()
         if mode == "mock":
             client = get_provider_client(Provider.MOCK)
+        elif mode == "local":
+            client = get_provider_client(Provider.LOCAL)
         elif mode == "gemini":
             client = get_provider_client(Provider.GEMINI)
         elif mode in ("openrouter", "openai"):
@@ -42,7 +44,10 @@ class ModelGateway:
             allow_fallback = settings.llm_fallback_to_mock
             if mode == "mock":
                 raise
-            if allow_fallback and (is_llm_quota_error(exc) or mode in ("gemini", "openrouter", "openai")):
+            if allow_fallback and (
+                is_llm_quota_error(exc)
+                or mode in ("gemini", "openrouter", "openai", "local")
+            ):
                 mock = MockProviderClient(
                     fallback_reason=(
                         f"Mock extraction used because {mode} LLM failed "

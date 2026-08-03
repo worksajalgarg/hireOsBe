@@ -59,6 +59,26 @@ def extract_transcript_lines(
     return lines
 
 
+def extract_structured_transcript(
+    chat_ctx: llm.ChatContext, *, user_label: str, assistant_label: str
+) -> list[dict]:
+    """Full transcript as structured {speaker, text, ts} dicts — the shape
+    platform's POST /internal/interview-sessions/:id/transcript expects
+    (see transcript_delivery.py, worker.py's shutdown callback). `ts` is
+    each message's created_at (epoch seconds), the closest thing
+    ChatMessage exposes to a real per-turn timestamp."""
+    lines: list[dict] = []
+    for message in chat_ctx.messages():
+        if message.role not in ("user", "assistant"):
+            continue
+        text = message.text_content
+        if not text:
+            continue
+        speaker = user_label if message.role == "user" else assistant_label
+        lines.append({"speaker": speaker, "text": text, "ts": message.created_at})
+    return lines
+
+
 def extract_pending_instructions(
     chat_ctx: llm.ChatContext, system_prompt: str | None = None
 ) -> str | None:

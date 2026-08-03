@@ -78,13 +78,14 @@ candidate_report:
 
 voice_interview_turn:
   chain:
-    - provider: openrouter
-      model: nvidia/nemotron-3-nano-30b-a3b:free
-      timeout_s: 8.0
     - provider: gemini
       model: gemini-flash-latest
+      timeout_s: 5.0
     - provider: groq
       model: llama-3.3-70b-versatile
+      timeout_s: 5.0
+    - provider: openrouter
+      model: meta-llama/llama-3.3-70b-instruct:free
   rationale: >
     Realtime conversational turn generation for the Voice Interviewer (PRD
     Section 7.1); bounded by voice_agent's system-prompt guardrails, no

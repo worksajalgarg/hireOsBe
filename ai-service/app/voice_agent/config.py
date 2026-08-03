@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..model_gateway.providers import Provider
+from .voice_tuning_config import load_voice_tuning_config
 
 DIRECT = "direct"
 LIVEKIT_INFERENCE = "livekit_inference"
@@ -19,6 +20,10 @@ LIVEKIT_INFERENCE = "livekit_inference"
 # (app/voice_agent/config.py -> app/voice_agent -> app -> ai-service).
 _DEFAULT_ROUTING_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent.parent / "config" / "model_routing.yaml"
+)
+# ai-service/config/voice_tuning.yaml — see voice_tuning_config.py.
+_DEFAULT_VOICE_TUNING_CONFIG_PATH = (
+    Path(__file__).resolve().parent.parent.parent / "config" / "voice_tuning.yaml"
 )
 
 # Voice-tuning defaults below match what was previously hardcoded/implicit —
@@ -32,6 +37,20 @@ DEFAULT_TTS_SPEED = 0.9
 DEFAULT_ENDPOINTING_MIN_DELAY_S = 0.5
 DEFAULT_ENDPOINTING_MAX_DELAY_S = 3.0
 DEFAULT_INTERRUPTIONS_ENABLED = True
+
+# "vad" (default, today's behavior — silence-duration heuristic within the
+# endpointing bounds above) or "semantic" (LiveKit Cloud's ML-based
+# inference.TurnDetector() — a smarter decision of "has the user actually
+# finished," still bounded by the same min/max endpointing delays). See
+# session.py's _turn_handling().
+VOICE_TURN_DETECTION_VAD = "vad"
+VOICE_TURN_DETECTION_SEMANTIC = "semantic"
+DEFAULT_TURN_DETECTION_MODE = VOICE_TURN_DETECTION_VAD
+
+# Background-voice-cancellation (see session.py, livekit-plugins-noise-
+# cancellation's BVC()) applied to the candidate's inbound audio before
+# STT. Independent of which STT/TTS provider is configured.
+DEFAULT_NOISE_CANCELLATION_ENABLED = True
 
 # Live-tested default as of today's session: a free OpenRouter model first
 # (Groq's daily token cap and Gemini's free-tier cap both got exhausted
@@ -61,6 +80,11 @@ class VoiceAgentSettings:
     # called once at worker startup and reloaded per job dispatch (see
     # worker.py). Overridable via ROUTING_CONFIG_PATH for tests/alternate envs.
     routing_config_path: Path
+    # Path to the YAML file defining STT/TTS primary+fallback models — see
+    # voice_tuning_config.py. Re-read fresh on every load_settings() call
+    # (which already happens per job dispatch), no separate reload needed.
+    # Overridable via VOICE_TUNING_CONFIG_PATH for tests/alternate envs.
+    voice_tuning_config_path: Path
     # ElevenLabs voice_settings.speed override — see session.py's
     # _TTS_VOICE_SETTINGS and module docstring.
     tts_speed: float
@@ -69,6 +93,31 @@ class VoiceAgentSettings:
     endpointing_max_delay_s: float
     # AgentSession turn_handling.interruption.enabled override — see session.py.
     interruptions_enabled: bool
+    # "vad" or "semantic" — see VOICE_TURN_DETECTION_VAD/_SEMANTIC above.
+    turn_detection_mode: str
+    # Primary + fallback model strings for LiveKit Cloud Inference STT/TTS —
+    # see voice_tuning_config.py. Only used when voice_provider ==
+    # LIVEKIT_INFERENCE. Empty fallback lists mean no fallback tier configured.
+    stt_model: str
+    stt_fallback_models: list[str]
+    stt_language: str | None
+    tts_model: str
+    tts_fallback_models: list[str]
+    # Primary + fallback LiveKit Inference LLM model strings — see
+    # voice_tuning_config.py's llm: section and gateway.py's
+    # set_livekit_inference_mode(). Only used when voice_provider ==
+    # LIVEKIT_INFERENCE; the DIRECT path uses model_routing.yaml chains instead.
+    llm_model: str
+    llm_fallback_models: list[str]
+    # Whether to apply BVC background-voice-cancellation to inbound audio.
+    noise_cancellation_enabled: bool
+    # platform's base API URL and the shared secret authenticating this
+    # worker's POST to platform's internal transcript-ingest endpoint — see
+    # transcript_delivery.py and docs/adr/0006-interview-transcript-storage.md.
+    # Required (not soft-failed) since a missing/wrong value here would
+    # silently mean every interview's transcript never gets delivered.
+    platform_internal_url: str
+    internal_service_secret: str
 
 
 def load_settings() -> VoiceAgentSettings:
@@ -88,15 +137,25 @@ def load_settings() -> VoiceAgentSettings:
     if voice_provider == DIRECT:
         deepgram_api_key = _require("DEEPGRAM_API_KEY")
         elevenlabs_api_key = _require("ELEVENLABS_API_KEY")
+        # GEMINI_API_KEY required on DIRECT path (GeminiProviderClient used in
+        # model_routing.yaml chains). Not required on livekit_inference path
+        # since LLM calls go through LiveKit Cloud (no direct vendor key needed).
+        gemini_api_key = _require("GEMINI_API_KEY")
     else:
         deepgram_api_key = os.environ.get("DEEPGRAM_API_KEY", "")
         elevenlabs_api_key = os.environ.get("ELEVENLABS_API_KEY", "")
+        gemini_api_key = os.environ.get("GEMINI_API_KEY", "")
+
+    voice_tuning_config_path = Path(
+        os.environ.get("VOICE_TUNING_CONFIG_PATH", str(_DEFAULT_VOICE_TUNING_CONFIG_PATH))
+    )
+    voice_tuning = load_voice_tuning_config(voice_tuning_config_path)
 
     return VoiceAgentSettings(
         livekit_url=_require("LIVEKIT_URL"),
         livekit_api_key=_require("LIVEKIT_API_KEY"),
         livekit_api_secret=_require("LIVEKIT_API_SECRET"),
-        gemini_api_key=_require("GEMINI_API_KEY"),
+        gemini_api_key=gemini_api_key,
         voice_provider=voice_provider,
         deepgram_api_key=deepgram_api_key,
         elevenlabs_api_key=elevenlabs_api_key,
@@ -104,6 +163,7 @@ def load_settings() -> VoiceAgentSettings:
         routing_config_path=Path(
             os.environ.get("ROUTING_CONFIG_PATH", str(_DEFAULT_ROUTING_CONFIG_PATH))
         ),
+        voice_tuning_config_path=voice_tuning_config_path,
         tts_speed=_parse_positive_float("VOICE_TTS_SPEED", DEFAULT_TTS_SPEED),
         endpointing_min_delay_s=_parse_positive_float(
             "VOICE_ENDPOINTING_MIN_DELAY_S", DEFAULT_ENDPOINTING_MIN_DELAY_S
@@ -114,6 +174,19 @@ def load_settings() -> VoiceAgentSettings:
         interruptions_enabled=_parse_bool(
             "VOICE_INTERRUPTIONS_ENABLED", DEFAULT_INTERRUPTIONS_ENABLED
         ),
+        turn_detection_mode=_parse_turn_detection_mode(),
+        stt_model=voice_tuning.stt_model,
+        stt_fallback_models=voice_tuning.stt_fallback_models,
+        stt_language=os.environ.get("STT_LANGUAGE", "en"),
+        tts_model=voice_tuning.tts_model,
+        tts_fallback_models=voice_tuning.tts_fallback_models,
+        llm_model=voice_tuning.llm_model,
+        llm_fallback_models=voice_tuning.llm_fallback_models,
+        noise_cancellation_enabled=_parse_bool(
+            "VOICE_NOISE_CANCELLATION_ENABLED", DEFAULT_NOISE_CANCELLATION_ENABLED
+        ),
+        platform_internal_url=_require("PLATFORM_INTERNAL_URL"),
+        internal_service_secret=_require("INTERNAL_SERVICE_SECRET"),
     )
 
 
@@ -135,6 +208,18 @@ def _parse_positive_float(name: str, default: float) -> float:
     if value <= 0:
         raise RuntimeError(f"{name} must be > 0, got {value}")
     return value
+
+
+def _parse_turn_detection_mode() -> str:
+    raw = os.environ.get("VOICE_TURN_DETECTION_MODE", "").strip().lower()
+    if not raw:
+        return DEFAULT_TURN_DETECTION_MODE
+    valid = {VOICE_TURN_DETECTION_VAD, VOICE_TURN_DETECTION_SEMANTIC}
+    if raw not in valid:
+        raise RuntimeError(
+            f"VOICE_TURN_DETECTION_MODE must be one of {sorted(valid)}, got {raw!r}"
+        )
+    return raw
 
 
 def _parse_bool(name: str, default: bool) -> bool:

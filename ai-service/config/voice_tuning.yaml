@@ -1,0 +1,45 @@
+# STT/TTS/LLM model selection for the LIVEKIT_INFERENCE voice provider path —
+# see app/voice_agent/voice_tuning_config.py for the loader/validation and
+# session.py's _build_stt_tts() for how STT/TTS are used, and
+# model_gateway/gateway.py's set_livekit_inference_mode() for how the llm:
+# section is used. Not part of model_routing.yaml on purpose: that file is
+# scoped to *LLM* routing chains on the DIRECT path (model_gateway's
+# boundary); STT/TTS/LLM here are all billed and authenticated through
+# LiveKit Cloud (LIVEKIT_API_KEY/SECRET) — no separate vendor keys needed.
+# Only applies when VOICE_PROVIDER=livekit_inference; the DIRECT (raw
+# Deepgram/ElevenLabs/Groq/Gemini keys) path uses model_routing.yaml chains
+# and doesn't use any model strings defined here.
+#
+# fallback_models: 0 or more secondary models tried in order if the primary
+# fails. For STT/TTS this wraps via stt.FallbackAdapter/tts.FallbackAdapter;
+# for LLM this builds extra livekit_inference chain tiers in gateway.py.
+
+stt:
+  model: deepgram/flux-general-multi # multilingual (30+ langs), best accuracy
+  fallback_models:
+    - deepgram/nova-3 # multilingual, ultra-fast (Flux gen)
+    - deepgram/nova-2 # multilingual, proven previous-gen fallback
+
+tts:
+  model: cartesia/sonic-3
+  fallback_models:
+    - elevenlabs/eleven_flash_v2_5
+    - inworld/inworld-tts-2
+
+# LLM model selection for VOICE_PROVIDER=livekit_inference.
+# Only used when VOICE_PROVIDER=livekit_inference — ignored on DIRECT path.
+# primary: model tried first for all voice ModelGateway use cases.
+# fallback_models: tried in order if primary is slow/unavailable.
+# Available LiveKit Inference LLM models (billed via LiveKit Cloud):
+#   openai/gpt-4.1-mini            — fast, low-latency, 1M context, good for realtime
+#   google/gemini-2.5-flash-lite   — fastest/cheapest Gemini option
+#   google/gemini-2.5-flash        — higher quality, slightly more latency
+#   google/gemini-2.5-pro          — frontier quality, higher cost
+#   google/gemma-4-31b-it          — open-weight, zero vendor dependency
+#   deepseek-ai/deepseek-v4-pro    — strong reasoning alternative
+llm:
+  model: openai/gpt-4.1-mini
+  fallback_models:
+    - google/gemini-2.5-flash-lite
+    - google/gemini-2.5-flash
+    - google/gemma-4-31b-it

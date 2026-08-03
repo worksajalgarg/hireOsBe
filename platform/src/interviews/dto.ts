@@ -23,6 +23,10 @@ export class CreateInterviewSessionDto {
   @IsOptional()
   @IsIn(SESSION_TYPES)
   sessionType?: SessionType;
+
+  @IsOptional()
+  @IsString()
+  promptId?: string;
 }
 
 export class JoinInterviewDto {

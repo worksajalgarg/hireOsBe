@@ -1,10 +1,13 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomBytes, randomUUID, createHash } from "crypto";
 import { TrackSource } from "@livekit/protocol";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../common/prisma.service";
 import { AuditService } from "../audit/audit.service";
 import { LiveKitService } from "./livekit.service";
 import { SessionType } from "./dto";
+import { IngestTranscriptDto } from "./internal-dto";
+import { signRoomMetadata } from "./room-metadata-signing";
 
 const DEFAULT_SESSION_TYPE: SessionType = "candidate_interview";
 
@@ -31,6 +34,18 @@ export class InterviewsService {
     return `${tenantId}/${sessionId}/recording.mp4`;
   }
 
+  /** Same shared secret Phase D's internal-service-guard.ts checks on
+   * ai-service's inbound calls — see docs/adr/0006-interview-transcript-storage.md.
+   * Read lazily (not cached at construction) so tests can set/unset it
+   * per-case without needing to reconstruct the service. */
+  private internalServiceSecret(): string {
+    const secret = process.env.INTERNAL_SERVICE_SECRET;
+    if (!secret) {
+      throw new Error("INTERNAL_SERVICE_SECRET is not configured");
+    }
+    return secret;
+  }
+
   /** Recruiter/admin-authed: creates the session, the LiveKit room, and the
    * single-use candidate invite link. */
   async createSession(params: {
@@ -39,36 +54,79 @@ export class InterviewsService {
     candidateRef: string;
     resumeContext?: string;
     sessionType?: SessionType;
+    promptId?: string;
   }) {
+    let promptSnapshotJson: Record<string, unknown> | undefined = undefined;
+
+    const db = this.prisma as unknown as {
+      promptTemplate: {
+        findFirst(args: { where: Record<string, unknown> }): Promise<{
+          id: string;
+          title: string;
+          conversationFlow?: string | null;
+          openingInstructions?: string | null;
+          silenceInstructions?: string | null;
+          systemBoundaries?: string | null;
+        } | null>;
+      };
+    };
+
+    let template = params.promptId
+      ? await db.promptTemplate.findFirst({
+          where: { id: params.promptId },
+        })
+      : null;
+
+    if (!template) {
+      template = await db.promptTemplate.findFirst({
+        where: { isDefault: true },
+      });
+    }
+
+    if (template) {
+      promptSnapshotJson = {
+        id: template.id,
+        title: template.title,
+        conversationFlow: template.conversationFlow,
+        openingInstructions: template.openingInstructions,
+        silenceInstructions: template.silenceInstructions,
+        systemBoundaries: template.systemBoundaries,
+      };
+    }
+
     const roomName = `interview-${randomUUID()}`;
     const inviteToken = randomBytes(32).toString("hex");
     const session = await this.prisma.interviewSession.create({
       data: {
         tenantId: params.tenantId,
         candidateRef: params.candidateRef,
+        promptId: params.promptId,
+        promptSnapshotJson: promptSnapshotJson ?? undefined,
         roomName,
         inviteTokenHash: this.hashToken(inviteToken),
         inviteExpiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
-      },
+      } as unknown as Prisma.InterviewSessionCreateInput,
     });
 
-    // Room metadata is how the voice agent worker (a separate process, dispatched
-    // by livekit-server, never calling back into platform) learns which tenant
-    // and session it's bound to — it must never see another candidate's data.
-    // resumeContext rides along the same channel so the agent can ground its
-    // questions in the candidate's actual background (see prompts.py).
-    // sessionType picks which voice-agent persona conducts the call — see
-    // ai-service/app/voice_agent/worker.py's sessionType branch. Defaulted
-    // here explicitly (not left to worker.py's own default) so this is the
-    // one place that decides it, auditable in the payload below.
     const sessionType = params.sessionType ?? DEFAULT_SESSION_TYPE;
+    const metadataSignature = signRoomMetadata(this.internalServiceSecret(), {
+      tenantId: params.tenantId,
+      sessionId: session.id,
+      sessionType,
+      resumeContext: params.resumeContext,
+    });
+
+    const promptContext = promptSnapshotJson ? JSON.stringify(promptSnapshotJson) : undefined;
+
     await this.livekit.createRoom(
       roomName,
       {
         tenantId: params.tenantId,
         sessionId: session.id,
         resumeContext: params.resumeContext,
+        promptContext,
         sessionType,
+        metadataSignature,
       },
       INVITE_TOKEN_TTL_MS / 1000,
     );
@@ -79,7 +137,7 @@ export class InterviewsService {
       eventType: "interview.session.created",
       entityType: "interview_session",
       entityId: session.id,
-      payload: { candidateRef: params.candidateRef, roomName, sessionType },
+      payload: { candidateRef: params.candidateRef, roomName, sessionType, promptId: params.promptId },
     });
 
     return { id: session.id, inviteToken };
@@ -196,6 +254,66 @@ export class InterviewsService {
     });
 
     return { ok: true };
+  }
+
+  /** Called once by ai-service's voice_agent worker after a call ends (see
+   * docs/adr/0006-interview-transcript-storage.md) — never by a user-facing
+   * client. Upserts rather than creates: a retried delivery (ai-service's
+   * local outbox retry, see transcript_delivery.py) after a prior partial
+   * success must not fail on the unique interviewSessionId constraint. */
+  async ingestTranscriptAndSummary(sessionId: string, dto: IngestTranscriptDto) {
+    const session = await this.getTenantSession(dto.tenantId, sessionId);
+
+    // ai-service's voice_agent worker never learns the real candidateRef —
+    // room metadata doesn't carry it (see interviews.service.ts's
+    // createRoom call above) and it isn't PII this service needs to push
+    // into the agent's context just for this. This InterviewSession row is
+    // the authoritative source, so it always wins over whatever ai-service
+    // sent (a session/room-name placeholder — see
+    // ai-service/app/voice_agent/post_call_evaluation.py).
+    const evaluation = { ...dto.evaluation, candidateRef: session.candidateRef };
+
+    const [transcript, summary] = await this.prisma.$transaction([
+      this.prisma.interviewTranscript.upsert({
+        where: { interviewSessionId: session.id },
+        create: {
+          interviewSessionId: session.id,
+          tenantId: session.tenantId,
+          linesJson: dto.lines as unknown as Prisma.InputJsonValue,
+        },
+        update: {
+          linesJson: dto.lines as unknown as Prisma.InputJsonValue,
+        },
+      }),
+      this.prisma.interviewSummary.upsert({
+        where: { interviewSessionId: session.id },
+        create: {
+          interviewSessionId: session.id,
+          tenantId: session.tenantId,
+          rollingSummaryText: dto.rollingSummary,
+          evaluationJson: evaluation as unknown as Prisma.InputJsonValue,
+          promptVersionsUsedJson: dto.promptVersionsUsed as Prisma.InputJsonValue,
+          modelUsageJson: dto.modelUsage as Prisma.InputJsonValue,
+        },
+        update: {
+          rollingSummaryText: dto.rollingSummary,
+          evaluationJson: evaluation as unknown as Prisma.InputJsonValue,
+          promptVersionsUsedJson: dto.promptVersionsUsed as Prisma.InputJsonValue,
+          modelUsageJson: dto.modelUsage as Prisma.InputJsonValue,
+        },
+      }),
+    ]);
+
+    await this.audit.record({
+      tenantId: session.tenantId,
+      actorId: "ai-service",
+      eventType: "interview.transcript.ingested",
+      entityType: "interview_session",
+      entityId: session.id,
+      payload: { recommendation: dto.evaluation.recommendation, lineCount: dto.lines.length },
+    });
+
+    return { transcriptId: transcript.id, summaryId: summary.id };
   }
 
   private async getTenantSession(tenantId: string, sessionId: string) {

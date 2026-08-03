@@ -8,6 +8,13 @@ they're implemented as thin `openai.AsyncOpenAI` clients pointed at a
 different base_url + api_key rather than adding new SDK dependencies (which
 would also mean widening test_model_gateway_boundary.py's allow-list).
 
+LiveKit Inference (`LIVEKIT_INFERENCE` provider): routes LLM calls through
+LiveKit Cloud Inference using `livekit.agents.inference.LLM`. No separate
+vendor API key needed — authenticated by `LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`
+already required by the worker. Only used when `VOICE_PROVIDER=livekit_inference`;
+gateway.py's `set_livekit_inference_mode()` replaces voice use-case chains with
+pure `livekit_inference` tiers in that mode.
+
 Anthropic remains a stub (no use_case_policy entry routes to it). OpenAI
 itself is wired up but currently unused by any policy (no working key at
 present) — kept in place so it's a one-line policy change to bring back.
@@ -27,6 +34,7 @@ class Provider(str, Enum):
     GEMINI = "gemini"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    LIVEKIT_INFERENCE = "livekit_inference"
 
 
 class ProviderClient:
@@ -116,31 +124,43 @@ class _OpenAICompatibleClient(ProviderClient):
 
 class OpenAIProviderClient(_OpenAICompatibleClient):
     def __init__(self, model: str = "gpt-4o-mini") -> None:
-        super().__init__(AsyncOpenAI(), model)
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            raise KeyError("OPENAI_API_KEY environment variable is not set")
+        super().__init__(AsyncOpenAI(api_key=api_key), model)
 
 
 class GroqProviderClient(_OpenAICompatibleClient):
     def __init__(self, model: str = "llama-3.3-70b-versatile") -> None:
+        api_key = os.environ.get("GROQ_API_KEY")
+        if not api_key:
+            raise KeyError("GROQ_API_KEY environment variable is not set")
         client = AsyncOpenAI(
             base_url="https://api.groq.com/openai/v1",
-            api_key=os.environ.get("GROQ_API_KEY"),
+            api_key=api_key,
         )
         super().__init__(client, model)
 
 
 class OpenRouterProviderClient(_OpenAICompatibleClient):
     def __init__(self, model: str = "anthropic/claude-sonnet-5") -> None:
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise KeyError("OPENROUTER_API_KEY environment variable is not set")
         client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
+            api_key=api_key,
         )
         super().__init__(client, model)
 
 
 class GeminiProviderClient(ProviderClient):
     def __init__(self, model: str = "gemini-flash-latest") -> None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise KeyError("GEMINI_API_KEY environment variable is not set")
         self._model = model
-        self._client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+        self._client = genai.Client(api_key=api_key)
 
     async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
         response = await self._client.aio.models.generate_content(
@@ -175,6 +195,52 @@ class GeminiProviderClient(ProviderClient):
                 yield chunk.text
 
 
+class LiveKitInferenceProviderClient(ProviderClient):
+    """Routes LLM calls through LiveKit Cloud Inference using the same
+    LIVEKIT_API_KEY/LIVEKIT_API_SECRET already required for STT/TTS.
+    No separate vendor API key needed. Only constructed when
+    VOICE_PROVIDER=livekit_inference (see gateway.py's
+    set_livekit_inference_mode()).
+
+    `inference.LLM` uses the livekit.agents ChatContext / ChatMessage
+    convention internally; we adapt our (system_prompt, user_prompt) interface
+    to that shape here so the rest of the gateway layer needs no changes.
+    """
+
+    def __init__(self, model: str = "google/gemini-2.5-flash-lite") -> None:
+        if not os.environ.get("LIVEKIT_API_KEY"):
+            raise KeyError("LIVEKIT_API_KEY not set — LiveKit Inference LLM unavailable")
+        from livekit.agents import inference  # lazy: avoids import error if package absent
+        self._llm = inference.LLM(model=model)
+        self._model = model
+
+    def _build_chat_ctx(self, system_prompt: str, user_prompt: str):
+        from livekit.agents.llm import ChatContext
+        ctx = ChatContext()
+        ctx.add_message(role="system", content=system_prompt)
+        ctx.add_message(role="user", content=user_prompt)
+        return ctx
+
+    async def stream_complete(
+        self, *, system_prompt: str, user_prompt: str
+    ) -> AsyncIterator[str]:
+        ctx = self._build_chat_ctx(system_prompt, user_prompt)
+        async for chunk in self._llm.chat(chat_ctx=ctx):
+            delta = getattr(chunk, "delta", None)
+            content = getattr(delta, "content", None) if delta else None
+            if content:
+                yield content
+
+    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+        parts = [c async for c in self.stream_complete(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )]
+        result = "".join(parts)
+        if not result:
+            raise RuntimeError(f"LiveKit Inference ({self._model}) returned no content")
+        return result
+
+
 class _UnimplementedProviderClient(ProviderClient):
     def __init__(self, provider: Provider) -> None:
         self._provider = provider
@@ -191,6 +257,7 @@ _CLIENT_FACTORIES = {
     Provider.GEMINI: GeminiProviderClient,
     Provider.GROQ: GroqProviderClient,
     Provider.OPENROUTER: OpenRouterProviderClient,
+    Provider.LIVEKIT_INFERENCE: LiveKitInferenceProviderClient,
 }
 
 

@@ -5,6 +5,15 @@ into rooms directly by the server, they are not HTTP handlers. Run with:
 
     python -m app.voice_agent.worker start
 
+Use `start`, not `dev`/`console`, for anything meant to run unattended.
+`start` is the only mode that gets structured JSON-to-stdout logging
+(confirmed from livekit-agents' own cli/log.py: `dev`/`console` force
+devmode=True, which uses colored, human-only, non-machine-parseable
+output instead) — every logger in this process, including
+model_gateway.metrics, rides on that same root-logger handler with no
+further setup needed here. See app/main.py's `_configure_logging()` for
+the FastAPI process's equivalent.
+
 Handles two personas, chosen by room metadata's sessionType:
 - "candidate_interview" (default) — the candidate-facing screening
   interview (see prompts.py, gateway_llm.py).
@@ -15,21 +24,34 @@ Handles two personas, chosen by room metadata's sessionType:
 See app/agents/interview_orchestrator.py for the narrow FastAPI-side
 boundary (orchestration metadata only); this module is where the
 conversation is actually conducted, for either persona.
+
+Room metadata (read by _room_metadata() below) is still the only *inbound*
+channel from platform — this process never fetches config or session state
+from platform before/during a call. The one deliberate exception is
+*outbound*: after a candidate_interview call ends, entrypoint()'s shutdown
+callback POSTs the transcript + evaluation to platform (see
+transcript_delivery.py, docs/adr/0006-interview-transcript-storage.md) —
+strictly post-call and best-effort (local outbox + retry), so a platform
+outage delays persistence, never the interview itself.
 """
 
+import asyncio
+import hashlib
 import json
 import logging
 from pathlib import Path
 
 from dotenv import load_dotenv
-from livekit.agents import AgentSession, JobContext, WorkerOptions, cli
+from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, cli
 from livekit.agents.job import AutoSubscribe
+from livekit.plugins import silero
 
 from ..model_gateway.metrics_log import reset_dev_metrics
 from ..model_gateway.providers import Provider
 from ..model_gateway.routing_config import load_routing_config
 from ..model_gateway.use_case_policy import USE_CASE_POLICIES, apply_provider_priority
-from .config import load_settings
+from ..model_gateway.gateway import model_gateway
+from .config import LIVEKIT_INFERENCE, VoiceAgentSettings, load_settings
 from .controls import register_control_handlers
 from .conversation_start import register_silence_handling
 from .dev_metrics import is_dev_metrics_enabled, register_dev_metrics_listener
@@ -38,14 +60,41 @@ from .hiring_manager_prompts import (
     DISCOVERY_SILENCE_NUDGE_INSTRUCTIONS,
     HIRING_MANAGER_DISCOVERY_SYSTEM_PROMPT,
 )
+from .llm_streaming import extract_structured_transcript
+from .metadata_signing import verify_metadata_signature
+from .post_call_evaluation import evaluate_interview
 from .prompts import (
     CANDIDATE_OPENING_INSTRUCTIONS,
     CANDIDATE_SILENCE_NUDGE_INSTRUCTIONS,
     build_interview_system_prompt,
 )
-from .session import build_agent_session, build_discovery_agent_session, build_voice_agent
+from .session import (
+    build_agent_session,
+    build_discovery_agent_session,
+    build_room_options,
+    build_voice_agent,
+)
+from .transcript_delivery import deliver_transcript, flush_pending
 
 logger = logging.getLogger("voice_agent")
+
+# AgentServer (not WorkerOptions+cli.run_app(WorkerOptions(...))) — the
+# newer livekit-agents registration surface over the same underlying
+# job-process-pool architecture (JobContext/room-metadata/persona-picking
+# below are unaffected). setup_fnc below prewarms Silero VAD once per idle
+# process instead of session.py reloading it on every single dispatch.
+# shutdown_process_timeout raised from the framework's 10s default — the
+# post-call transcript build + evaluation LLM call + POST to platform (see
+# entrypoint()'s shutdown callback) needs real headroom, same reasoning the
+# reference demo project's AgentServer(shutdown_process_timeout=60.0) used.
+server = AgentServer(shutdown_process_timeout=60.0)
+
+
+def _prewarm(proc: JobProcess) -> None:
+    proc.userdata["vad"] = silero.VAD.load()
+
+
+server.setup_fnc = _prewarm
 
 CANDIDATE_INTERVIEW = "candidate_interview"
 HIRING_MANAGER_DISCOVERY = "hiring_manager_discovery"
@@ -81,7 +130,7 @@ _VOICE_LLM_USE_CASES = [
 _routing_config_mtime: float | None = None
 
 
-def _reload_routing_config_if_changed(path: Path, priority: list[Provider]) -> None:
+def _reload_routing_config_if_changed(path: Path, priority: list[Provider], settings: VoiceAgentSettings) -> None:
     global _routing_config_mtime
     try:
         mtime = path.stat().st_mtime
@@ -89,19 +138,36 @@ def _reload_routing_config_if_changed(path: Path, priority: list[Provider]) -> N
         logger.warning("Routing config %s not found, keeping previously loaded policies", path)
         return
     if mtime == _routing_config_mtime:
+        # Even if YAML is unchanged, re-apply livekit_inference mode if needed
+        # (child processes start with an empty USE_CASE_POLICIES and need this
+        # regardless of whether the file changed).
+        if settings.voice_provider == LIVEKIT_INFERENCE:
+            model_gateway.set_livekit_inference_mode(
+                primary=settings.llm_model,
+                fallbacks=settings.llm_fallback_models,
+            )
         return
     USE_CASE_POLICIES.clear()
     USE_CASE_POLICIES.update(load_routing_config(path))
     apply_provider_priority(_VOICE_LLM_USE_CASES, priority)
     _routing_config_mtime = mtime
+    # After loading/reloading the YAML, replace voice use-case chains with
+    # livekit_inference tiers if that mode is active.
+    if settings.voice_provider == LIVEKIT_INFERENCE:
+        model_gateway.set_livekit_inference_mode(
+            primary=settings.llm_model,
+            fallbacks=settings.llm_fallback_models,
+        )
 
 
 def _room_metadata(ctx: JobContext) -> dict:
     """Room metadata is set by platform/src/interviews/interviews.service.ts
-    at room-creation time and is the only source of tenant/session identity
-    (and, optionally, resumeContext/sessionType) this process ever sees — it
-    never calls back into platform, and never receives another session's
-    data."""
+    at room-creation time and is the only *inbound* source of tenant/session
+    identity (and, optionally, resumeContext/sessionType) this process ever
+    sees — it never fetches anything from platform before/during a call,
+    and never receives another session's data. (Module docstring above
+    covers the one deliberate outbound exception: post-call transcript
+    delivery.)"""
     raw = ctx.room.metadata or "{}"
     try:
         return json.loads(raw)
@@ -110,6 +176,7 @@ def _room_metadata(ctx: JobContext) -> dict:
         return {}
 
 
+@server.rtc_session()
 async def entrypoint(ctx: JobContext) -> None:
     # AUDIO_ONLY is a deliberate, structural Responsible AI boundary, not an
     # oversight — do not change this to subscribe to video, for either
@@ -123,7 +190,7 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
     settings = load_settings()
-    _reload_routing_config_if_changed(settings.routing_config_path, settings.llm_provider_priority)
+    _reload_routing_config_if_changed(settings.routing_config_path, settings.llm_provider_priority, settings)
 
     if is_dev_metrics_enabled():
         # One dashboard, one interview at a time locally — reset at the
@@ -131,6 +198,21 @@ async def entrypoint(ctx: JobContext) -> None:
         reset_dev_metrics()
 
     metadata = _room_metadata(ctx)
+
+    # Reject a room whose metadata wasn't signed by platform's createSession()
+    # (see room-metadata-signing.ts, metadata_signing.py, and
+    # docs/adr/0006-interview-transcript-storage.md's Phase E section) —
+    # fails closed: no session is built, no STT/LLM/TTS cost is incurred,
+    # for a room that didn't come from platform's own session creation.
+    is_console_room = ctx.room.name in ("console", "console-room") or ctx.room.name.startswith("console")
+    if not is_console_room and not verify_metadata_signature(metadata, settings.internal_service_secret):
+        logger.error(
+            "Room %s has missing/invalid metadata signature — refusing to start a session",
+            ctx.room.name,
+        )
+        ctx.shutdown(reason="invalid room metadata signature")
+        return
+
     session_type = metadata.get("sessionType", CANDIDATE_INTERVIEW)
     logger.info(
         "voice_agent dispatched",
@@ -143,25 +225,117 @@ async def entrypoint(ctx: JobContext) -> None:
         },
     )
 
+    vad = ctx.proc.userdata.get("vad")
     if session_type == HIRING_MANAGER_DISCOVERY:
         system_prompt = HIRING_MANAGER_DISCOVERY_SYSTEM_PROMPT
         opening_instructions = DISCOVERY_OPENING_INSTRUCTIONS
         nudge_instructions = DISCOVERY_SILENCE_NUDGE_INSTRUCTIONS
         session: AgentSession = build_discovery_agent_session(
-            system_prompt, session_label=ctx.room.name
+            system_prompt, session_label=ctx.room.name, vad=vad
         )
     else:
-        system_prompt = build_interview_system_prompt(metadata.get("resumeContext"))
-        opening_instructions = CANDIDATE_OPENING_INSTRUCTIONS
-        nudge_instructions = CANDIDATE_SILENCE_NUDGE_INSTRUCTIONS
-        session = build_agent_session(system_prompt, session_label=ctx.room.name)
+        prompt_ctx_str = metadata.get("promptContext")
+        prompt_data = {}
+        if prompt_ctx_str:
+            try:
+                prompt_data = json.loads(prompt_ctx_str)
+            except Exception:
+                pass
+
+        flow = prompt_data.get("conversationFlow")
+        boundaries = prompt_data.get("systemBoundaries")
+        opening = prompt_data.get("openingInstructions")
+        silence = prompt_data.get("silenceInstructions")
+
+        system_prompt = build_interview_system_prompt(
+            metadata.get("resumeContext"),
+            conversation_flow=flow,
+            system_boundaries=boundaries,
+        )
+        opening_instructions = opening or CANDIDATE_OPENING_INSTRUCTIONS
+        nudge_instructions = silence or CANDIDATE_SILENCE_NUDGE_INSTRUCTIONS
+        session = build_agent_session(system_prompt, session_label=ctx.room.name, vad=vad)
 
     agent = build_voice_agent(system_prompt, opening_instructions=opening_instructions)
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(agent=agent, room=ctx.room, room_options=build_room_options(settings))
     register_control_handlers(ctx.room, session)
     register_silence_handling(session, nudge_instructions=nudge_instructions)
     if is_dev_metrics_enabled():
         register_dev_metrics_listener(session, ctx.room.name)
+
+    # Candidate-interview only for this pass — the discovery agent's
+    # structured intake data (DiscoveryFields) is a different shape with no
+    # "evaluation"/recommendation concept, and isn't covered by this
+    # endpoint yet (see docs/adr/0006-interview-transcript-storage.md).
+    if session_type == CANDIDATE_INTERVIEW:
+        ctx.add_shutdown_callback(
+            _deliver_transcript_on_shutdown(
+                session=session,
+                settings=settings,
+                tenant_id=metadata.get("tenantId"),
+                session_id=metadata.get("sessionId"),
+                system_prompt=system_prompt,
+            )
+        )
+
+
+def _deliver_transcript_on_shutdown(
+    *,
+    session: AgentSession,
+    settings: VoiceAgentSettings,
+    tenant_id: str | None,
+    session_id: str | None,
+    system_prompt: str,
+):
+    """Returns the actual shutdown-callback coroutine function — a closure
+    so it captures this dispatch's session/settings/ids without needing
+    JobContext to carry them. Best-effort throughout: this must never raise
+    into livekit-agents' shutdown sequence, and a failure here must never be
+    interpreted as anything about the candidate (see CLAUDE.md's Responsible
+    AI constraint: a technical/connection issue must never silently affect
+    scoring — this is purely operational data delivery, not scoring)."""
+
+    async def _on_shutdown() -> None:
+        if not tenant_id or not session_id:
+            logger.warning(
+                "Skipping transcript delivery: missing tenantId/sessionId in room metadata"
+            )
+            return
+        try:
+            lines = extract_structured_transcript(
+                session.history, user_label="Candidate", assistant_label="Interviewer"
+            )
+            flat_lines = [f"{line['speaker']}: {line['text']}" for line in lines]
+            evaluation = await evaluate_interview(
+                candidate_ref=session_id, transcript_lines=flat_lines
+            )
+            # Platform's internal DTO declares modelUsage as @IsObject()
+            # (Record<string, unknown>) — must be a JSON object, not an
+            # array. Key by index so all entries are preserved as a dict.
+            raw_usage = [m.model_dump(mode="json") for m in session.usage.model_usage]
+            model_usage_obj: dict = {str(i): entry for i, entry in enumerate(raw_usage)}
+            payload = {
+                "tenantId": tenant_id,
+                "lines": lines,
+                "rollingSummary": getattr(session.llm, "rolling_summary", None) or None,
+                "evaluation": evaluation.model_dump(by_alias=True),
+                "promptVersionsUsed": {
+                    "candidate_interview": hashlib.sha256(system_prompt.encode()).hexdigest()[:12]
+                },
+                "modelUsage": model_usage_obj,
+            }
+            await deliver_transcript(
+                session_id,
+                payload,
+                base_url=settings.platform_internal_url,
+                secret=settings.internal_service_secret,
+            )
+        except Exception:
+            logger.exception(
+                "Unhandled error building/delivering transcript for session %s", session_id
+            )
+
+    return _on_shutdown
 
 
 def main() -> None:
@@ -174,16 +348,24 @@ def main() -> None:
     # entrypoint()) inherits the environment from here regardless, so it
     # doesn't need its own load_dotenv() call.
     load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
-    settings = load_settings()  # fail fast if LIVEKIT_*/GEMINI_API_KEY/etc are missing
+    settings = load_settings()  # fail fast if required env vars are missing
     # Fail-fast validation of the routing config at supervisor startup, so a
     # broken YAML is caught immediately rather than on the first dispatched
     # job. This populates USE_CASE_POLICIES in the supervisor process only —
     # entrypoint() (below) does the real per-job-process load, since that's
     # a separate process this one doesn't share memory with.
     _reload_routing_config_if_changed(
-        settings.routing_config_path, settings.llm_provider_priority
+        settings.routing_config_path, settings.llm_provider_priority, settings
     )
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint))
+    # Retries any transcript a prior process wrote to the local outbox but
+    # never successfully delivered (e.g. platform was down at the time) —
+    # see transcript_delivery.py.
+    asyncio.run(
+        flush_pending(
+            base_url=settings.platform_internal_url, secret=settings.internal_service_secret
+        )
+    )
+    cli.run_app(server)
 
 
 if __name__ == "__main__":

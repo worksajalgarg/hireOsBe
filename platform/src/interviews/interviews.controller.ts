@@ -1,8 +1,10 @@
-import { Body, Controller, Param, Post } from "@nestjs/common";
+import { Body, Controller, Param, Post, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { Public } from "../auth/public.decorator";
 import { CurrentUser, RequirePermissions } from "../auth/auth.decorators";
 import { PERMISSIONS } from "../common/permissions";
+import { TenantThrottlerGuard } from "../common/tenant-throttler.guard";
 import { InterviewsService } from "./interviews.service";
 import { CreateInterviewSessionDto, JoinInterviewDto } from "./dto";
 
@@ -11,9 +13,15 @@ import { CreateInterviewSessionDto, JoinInterviewDto } from "./dto";
 export class InterviewsController {
   constructor(private readonly interviews: InterviewsService) {}
 
+  // Stricter than the app-wide generic 100/min-per-IP throttle
+  // (app.module.ts) — tenant-scoped, since each call here creates a real
+  // LiveKit room + dispatches a worker job with real STT/LLM/TTS cost
+  // regardless of caller IP. See docs/adr/0006-interview-transcript-storage.md.
   @Post()
   @ApiBearerAuth()
   @RequirePermissions(PERMISSIONS.INTERVIEWS_MANAGE)
+  @UseGuards(TenantThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async create(
     @CurrentUser() user: { id: string; tenantId: string },
     @Body() dto: CreateInterviewSessionDto,
@@ -24,6 +32,7 @@ export class InterviewsController {
       candidateRef: dto.candidateRef,
       resumeContext: dto.resumeContext,
       sessionType: dto.sessionType,
+      promptId: dto.promptId,
     });
     const appUrl = process.env.CANDIDATE_APP_URL ?? process.env.CORS_ORIGIN ?? "http://localhost:3000";
     return { id, inviteUrl: `${appUrl}/candidate/interview/${inviteToken}` };

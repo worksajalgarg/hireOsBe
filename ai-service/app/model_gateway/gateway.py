@@ -73,8 +73,9 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
+from .circuit_breaker import circuit_breaker
 from .metrics_log import append_metric, is_dev_metrics_enabled
-from .providers import Provider, get_provider_client
+from .providers import Provider, ProviderClient, get_provider_client
 from .use_case_policy import ProviderChoice, UseCasePolicy, get_policy
 
 logger = logging.getLogger("model_gateway")
@@ -87,6 +88,16 @@ _SchemaT = TypeVar("_SchemaT", bound=BaseModel)
 # real outlier (a live 16s case prompted this) fast enough that falling
 # back is still much better than the candidate sitting through it.
 _FIRST_CHUNK_TIMEOUT_S = 4.0
+
+# Voice use cases whose chain is replaced when set_livekit_inference_mode()
+# is called (see below and worker.py). Offline use cases (resume_parsing,
+# interview_evaluation, etc.) keep their model_routing.yaml chains unchanged.
+_VOICE_LLM_USE_CASES = [
+    "voice_interview_turn",
+    "voice_interview_summary",
+    "role_discovery_turn",
+    "role_discovery_extraction",
+]
 
 
 def _log_metrics(
@@ -138,7 +149,69 @@ def _log_metrics(
     append_metric(record)
 
 
+def _handle_provider_exc(exc: Exception, provider: Provider) -> None:
+    """Classify an exception and update the circuit breaker accordingly.
+    Called whenever a provider call raises in run(), run_stream(), or
+    _structured_attempt() so the breaker state stays consistent across all
+    three call paths."""
+    try:
+        # openai package may not be imported in all environments;
+        # check the class name as a safe fallback.
+        from openai import RateLimitError
+        if isinstance(exc, RateLimitError):
+            circuit_breaker.record_rate_limit(provider)
+            return
+    except ImportError:
+        if type(exc).__name__ == "RateLimitError":
+            circuit_breaker.record_rate_limit(provider)
+            return
+    if isinstance(exc, KeyError):
+        # Missing API key — provider is structurally unavailable; give it a
+        # full rate-limit cooldown so we don't retry it on every single turn.
+        circuit_breaker.record_rate_limit(provider)
+        return
+    circuit_breaker.record_failure(provider)
+
+
 class ModelGateway:
+    def set_livekit_inference_mode(
+        self,
+        primary: str,
+        fallbacks: list[str],
+        timeout_s: float = 8.0,
+    ) -> None:
+        """Replace voice use-case chains with pure livekit_inference tiers,
+        called once at worker startup when VOICE_PROVIDER=livekit_inference.
+
+        Builds a chain: [primary, *fallbacks], all using Provider.LIVEKIT_INFERENCE,
+        and overwrites the voice LLM use cases in USE_CASE_POLICIES in-place.
+        Offline use cases (resume_parsing, interview_evaluation, etc.) are not
+        touched — they keep their model_routing.yaml chains. This is reversible
+        by calling load_routing_config() again (worker's _reload_routing_config_if_changed).
+        """
+        from .use_case_policy import USE_CASE_POLICIES, UseCasePolicy
+        models = [primary] + list(fallbacks)
+        chain = [
+            ProviderChoice(
+                provider=Provider.LIVEKIT_INFERENCE,
+                model=m,
+                timeout_s=timeout_s,
+            )
+            for m in models
+        ]
+        rationale = (
+            f"livekit_inference mode: primary={primary}, "
+            f"fallbacks={fallbacks} (set by set_livekit_inference_mode)"
+        )
+        for use_case in _VOICE_LLM_USE_CASES:
+            if use_case in USE_CASE_POLICIES:
+                USE_CASE_POLICIES[use_case] = UseCasePolicy(chain=chain, rationale=rationale)
+        logger.info(
+            "model_gateway: livekit_inference mode active for voice use cases, "
+            "chain=%s",
+            [m for m in models],
+        )
+
     async def run(
         self,
         *,
@@ -151,6 +224,14 @@ class ModelGateway:
         context_chars = len(system_prompt) + len(user_prompt)
         last_exc: Exception | None = None
         for tier, choice in enumerate(policy.chain):
+            # Skip providers currently in circuit-breaker cooldown.
+            if not circuit_breaker.is_available(choice.provider):
+                remaining = circuit_breaker.cooldown_remaining(choice.provider)
+                logger.debug(
+                    "circuit_breaker: skipping %s for use_case=%s (%.0fs cooldown remaining)",
+                    choice.provider.value, use_case, remaining,
+                )
+                continue
             start = time.monotonic()
             try:
                 client = get_provider_client(choice.provider, choice.model)
@@ -159,6 +240,7 @@ class ModelGateway:
                 )
             except Exception as exc:
                 last_exc = exc
+                _handle_provider_exc(exc, choice.provider)
                 is_last = tier == len(policy.chain) - 1
                 logger.warning(
                     "provider %s failed for use_case=%s (tier %d/%d)%s",
@@ -166,6 +248,7 @@ class ModelGateway:
                     "" if is_last else ", trying next tier", exc_info=True,
                 )
                 continue
+            circuit_breaker.record_success(choice.provider)
             _log_metrics(
                 use_case=use_case, provider=choice.provider, model=choice.model,
                 context_chars=context_chars, latency_s=time.monotonic() - start,
@@ -175,7 +258,7 @@ class ModelGateway:
             return result
         if last_exc is not None:
             raise last_exc  # every tier in the chain failed
-        raise RuntimeError(f"{use_case}: no providers configured in chain")
+        raise RuntimeError(f"{use_case}: no providers configured or all in cooldown")
 
     async def run_structured(
         self,
@@ -243,18 +326,27 @@ class ModelGateway:
         repeated failures should. Returns (result, retries_used) so a
         success on attempt 2 — a provider whose JSON-mode reliability is
         degrading — is visible in metrics, not just a warning log line."""
-        client = get_provider_client(provider, model)
+        if not circuit_breaker.is_available(provider):
+            return None, 0
+        try:
+            client = get_provider_client(provider, model)
+        except (KeyError, Exception) as exc:
+            _handle_provider_exc(exc, provider)
+            return None, 0
         for attempt in range(2):
             try:
                 raw = await client.complete_json(
                     system_prompt=system_prompt, user_prompt=user_prompt
                 )
-                return schema.model_validate_json(raw), attempt
+                result = schema.model_validate_json(raw)
+                circuit_breaker.record_success(provider)
+                return result, attempt
             except Exception:
                 logger.warning(
                     "structured output attempt %d/2 failed for provider %s",
                     attempt + 1, provider.value, exc_info=True,
                 )
+        circuit_breaker.record_failure(provider)
         return None, 0
 
     async def run_stream(
@@ -285,10 +377,39 @@ class ModelGateway:
         context_chars: int,
         context_detail: dict | None,
     ) -> AsyncIterator[str]:
+        # Skip providers in circuit-breaker cooldown without making a network call.
+        while tier < len(chain) and not circuit_breaker.is_available(chain[tier].provider):
+            remaining = circuit_breaker.cooldown_remaining(chain[tier].provider)
+            logger.debug(
+                "circuit_breaker: skipping %s for use_case=%s (%.0fs cooldown remaining)",
+                chain[tier].provider.value, use_case, remaining,
+            )
+            tier += 1
+        if tier >= len(chain):
+            logger.error(
+                "_stream_chain: all providers in cooldown or exhausted for use_case=%s", use_case
+            )
+            return
+
         choice = chain[tier]
         timeout_s = choice.timeout_s if choice.timeout_s is not None else _FIRST_CHUNK_TIMEOUT_S
         start = time.monotonic()
-        client = get_provider_client(choice.provider, choice.model)
+        try:
+            client = get_provider_client(choice.provider, choice.model)
+        except (KeyError, Exception) as exc:
+            _handle_provider_exc(exc, choice.provider)
+            if tier + 1 < len(chain):
+                logger.warning(
+                    "provider %s unavailable for use_case=%s (tier %d/%d), trying next tier",
+                    choice.provider.value, use_case, tier + 1, len(chain), exc_info=True,
+                )
+                async for chunk in self._stream_chain(
+                    use_case, chain, tier + 1,
+                    system_prompt=system_prompt, user_prompt=user_prompt,
+                    context_chars=context_chars, context_detail=context_detail,
+                ):
+                    yield chunk
+            return
         stream = client.stream_complete(system_prompt=system_prompt, user_prompt=user_prompt)
         try:
             first_chunk = await asyncio.wait_for(stream.__anext__(), timeout=timeout_s)
@@ -296,6 +417,7 @@ class ModelGateway:
             return
         except Exception as exc:
             is_last = tier == len(chain) - 1
+            _handle_provider_exc(exc, choice.provider)
             # Abandon the slow/failed stream rather than leaving it running
             # in the background — best-effort, a provider client that
             # doesn't support aclose() just gets garbage collected.
@@ -334,6 +456,8 @@ class ModelGateway:
                 yield chunk
             interrupted = False
         finally:
+            if not interrupted:
+                circuit_breaker.record_success(choice.provider)
             _log_metrics(
                 use_case=use_case, provider=choice.provider, model=choice.model,
                 context_chars=context_chars, latency_s=time.monotonic() - start,

@@ -45,6 +45,7 @@ model Tenant {
   invitations  TenantInvitation[]
   auditEvents  AuditEvent[]
   interviewSessions InterviewSession[]
+  promptTemplates   PromptTemplate[]
 
   @@map("tenants")
 }
@@ -203,30 +204,95 @@ model TenantInvitation {
   @@map("tenant_invitations")
 }
 
+model PromptTemplate {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  title               String
+  description         String?
+  category            String   @default("Technical")
+  conversationFlow    String?  @db.Text @map("conversation_flow")
+  openingInstructions String?  @db.Text @map("opening_instructions")
+  silenceInstructions String?  @db.Text @map("silence_instructions")
+  systemBoundaries    String?  @db.Text @map("system_boundaries")
+  isDefault           Boolean  @default(false) @map("is_default")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions  InterviewSession[]
+
+  @@index([tenantId])
+  @@map("prompt_templates")
+}
+
 /// LiveKit-backed AI voice interview session. `candidateRef` is a placeholder
 /// free-text reference (no Candidate model exists yet — lands Sprint 3); this
 /// stays a plain string until that model exists, at which point it becomes a
 /// real FK.
 model InterviewSession {
-  id              String                 @id @default(uuid())
-  tenantId        String                 @map("tenant_id")
-  candidateRef    String                 @map("candidate_ref")
-  roomName        String                 @unique @map("room_name")
-  inviteTokenHash String                 @map("invite_token_hash")
-  inviteExpiresAt DateTime               @map("invite_expires_at")
-  status          InterviewSessionStatus @default(PENDING)
-  egressId        String?                @map("egress_id")
-  recordingUrl    String?                @map("recording_url")
-  startedAt       DateTime?              @map("started_at")
-  endedAt         DateTime?              @map("ended_at")
-  createdAt       DateTime               @default(now()) @map("created_at")
-  updatedAt       DateTime               @updatedAt @map("updated_at")
+  id                 String                 @id @default(uuid())
+  tenantId           String                 @map("tenant_id")
+  candidateRef       String                 @map("candidate_ref")
+  promptId           String?                @map("prompt_id")
+  promptSnapshotJson Json?                  @map("prompt_snapshot_json")
+  roomName           String                 @unique @map("room_name")
+  inviteTokenHash    String                 @map("invite_token_hash")
+  inviteExpiresAt    DateTime               @map("invite_expires_at")
+  status             InterviewSessionStatus @default(PENDING)
+  egressId           String?                @map("egress_id")
+  recordingUrl       String?                @map("recording_url")
+  startedAt          DateTime?              @map("started_at")
+  endedAt            DateTime?              @map("ended_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  prompt PromptTemplate? @relation(fields: [promptId], references: [id], onDelete: SetNull)
+  transcript InterviewTranscript?
+  summary    InterviewSummary?
 
   @@index([tenantId])
   @@index([inviteTokenHash])
   @@map("interview_sessions")
+}
+
+/// Full transcript of a completed interview, pushed by ai-service's voice_agent
+/// worker after the call ends (see docs/adr/0006-interview-transcript-storage.md).
+/// One row per session — ai-service holds the whole conversation in memory for
+/// the call's duration and sends it once at shutdown, not incrementally.
+model InterviewTranscript {
+  id                 String   @id @default(uuid())
+  interviewSessionId String   @unique @map("interview_session_id")
+  tenantId           String   @map("tenant_id")
+  linesJson          Json     @map("lines_json") // [{speaker, text, stage?, ts}, ...]
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  interviewSession InterviewSession @relation(fields: [interviewSessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("interview_transcripts")
+}
+
+/// Structured post-call evaluation + operational metadata for one interview.
+/// evaluationJson is an InterviewEvaluationSummary (see
+/// common/types/interview-evaluation-summary.ts) — a scoped-down,
+/// evidence-based shape (no bare score, ever) used until a real rubric/role
+/// system exists to populate the full CandidateEvaluation type's
+/// roleId/rubricVersion honestly.
+model InterviewSummary {
+  id                     String   @id @default(uuid())
+  interviewSessionId     String   @unique @map("interview_session_id")
+  tenantId               String   @map("tenant_id")
+  rollingSummaryText     String?  @db.Text @map("rolling_summary_text")
+  evaluationJson         Json     @map("evaluation_json")
+  promptVersionsUsedJson Json     @map("prompt_versions_used_json")
+  modelUsageJson         Json     @map("model_usage_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  interviewSession InterviewSession @relation(fields: [interviewSessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("interview_summaries")
 }
 
 model PasswordResetToken {

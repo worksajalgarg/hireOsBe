@@ -88,6 +88,15 @@ class GatewayLLM(llm.LLM):
     def provider(self) -> str:
         return "hireos-model-gateway"
 
+    @property
+    def rolling_summary(self) -> str:
+        """Public read access for worker.py's shutdown callback (see
+        docs/adr/0006-interview-transcript-storage.md) — the summary at
+        whatever point the last consolidation reached, not necessarily
+        covering every line up to the very last turn (schedule_consolidation
+        is fire-and-forget and may still be mid-flight at shutdown)."""
+        return self._rolling_summary
+
     def chat(
         self,
         *,

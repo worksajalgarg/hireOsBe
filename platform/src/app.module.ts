@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { CommonModule } from "./common/common.module";
 import { TenantContextMiddleware } from "./common/tenant-context.middleware";
@@ -18,9 +19,12 @@ import { PermissionsGuard } from "./auth/permissions.guard";
 import { WorkspaceModule } from "./workspace/workspace.module";
 import { RbacModule } from "./rbac/rbac.module";
 
+import { PromptsModule } from "./prompts/prompts.module";
+
 @Module({
   imports: [
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    ScheduleModule.forRoot(),
     CommonModule,
     AuthModule,
     TenantModule,
@@ -33,6 +37,7 @@ import { RbacModule } from "./rbac/rbac.module";
     WorkflowModule,
     IntegrationsModule,
     InterviewsModule,
+    PromptsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

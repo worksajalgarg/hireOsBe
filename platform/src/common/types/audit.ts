@@ -16,7 +16,11 @@ export type AuditEventType =
   | "interview.session.candidate_joined"
   | "interview.session.ended"
   | "interview.recording.started"
-  | "interview.recording.completed";
+  | "interview.recording.completed"
+  | "interview.transcript.ingested"
+  | "prompt.template.created"
+  | "prompt.template.updated"
+  | "prompt.template.deleted";
 
 export interface AuditEvent {
   id: string;

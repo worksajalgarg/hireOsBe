@@ -230,7 +230,11 @@ def _compact_resume_context(resume_context: str) -> str:
     return compact[:_MAX_COMPACT_RESUME_CHARS]
 
 
-def build_interview_system_prompt(resume_context: str | None = None) -> str:
+def build_interview_system_prompt(
+    resume_context: str | None = None,
+    conversation_flow: str | None = None,
+    system_boundaries: str | None = None,
+) -> str:
     """resume_context, when provided, is whatever the caller passed as
     InterviewSession's resumeContext — currently a freeform string (JSON or
     plain text), read from room metadata (see worker.py's _room_metadata).
@@ -241,8 +245,11 @@ def build_interview_system_prompt(resume_context: str | None = None) -> str:
     header = """You are the AI Voice Interviewer for the HireOS Enterprise AI Hiring \
 Platform, conducting a structured screening interview with one candidate."""
 
+    flow_text = conversation_flow if conversation_flow else _CONVERSATION_FLOW
+    boundaries_text = system_boundaries if system_boundaries else _BOUNDARIES
+
     if not resume_context:
-        return f"{header}\n\n{_CONVERSATION_FLOW}\n\n{_BOUNDARIES}"
+        return f"{header}\n\n{flow_text}\n\n{boundaries_text}"
 
     compact_resume = _compact_resume_context(resume_context)
     resume_block = f"""
@@ -258,7 +265,7 @@ Use it to ask specific, grounded questions about the candidate's actual listed \
 skills, projects, and experience, instead of generic questions a candidate with \
 any background could answer."""
 
-    return f"{header}\n{resume_block}\n\n{_CONVERSATION_FLOW}\n\n{_BOUNDARIES}"
+    return f"{header}\n{resume_block}\n\n{flow_text}\n\n{boundaries_text}"
 
 
 # Backward-compatible default (no resume context) — used wherever a plain

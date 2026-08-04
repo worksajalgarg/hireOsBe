@@ -24,7 +24,6 @@ import os
 from collections.abc import AsyncIterator
 from enum import Enum
 
-from google import genai
 from openai import AsyncOpenAI
 
 
@@ -159,6 +158,10 @@ class GeminiProviderClient(ProviderClient):
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise KeyError("GEMINI_API_KEY environment variable is not set")
+        # Lazy: only pay this SDK's memory footprint in a process that
+        # actually constructs a Gemini client (voice worker is OpenAI-only).
+        from google import genai
+
         self._model = model
         self._client = genai.Client(api_key=api_key)
 

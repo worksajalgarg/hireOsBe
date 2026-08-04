@@ -39,6 +39,8 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -88,17 +90,31 @@ logger = logging.getLogger("voice_agent")
 # entrypoint()'s shutdown callback) needs real headroom, same reasoning the
 # reference demo project's AgentServer(shutdown_process_timeout=60.0) used.
 server = AgentServer(
+    port=int(os.environ.get("PORT", 8081)),
     shutdown_process_timeout=60.0,
     initialize_process_timeout=60.0,
-    num_idle_processes=1,
+    num_idle_processes=0,
 )
 
 
 def _prewarm(proc: JobProcess) -> None:
-    # Skip heavy Silero ONNX C-binding load on constrained cloud containers.
-    # Eliminates the 35s ONNX runtime device scanning delay during process spawn,
-    # ensuring child process initialization completes in < 1 second.
-    pass
+    # Loaded off the process-init critical path: Silero's ONNX runtime does a
+    # GPU device scan that can take ~35s on constrained cloud containers,
+    # which previously blew past initialize_process_timeout when loaded
+    # synchronously here. entrypoint() waits (bounded) on vad_ready instead
+    # of blocking process spawn on this.
+    vad_ready = threading.Event()
+    proc.userdata["vad_ready"] = vad_ready
+
+    def _load() -> None:
+        try:
+            proc.userdata["vad"] = silero.VAD.load()
+        except Exception as exc:
+            logger.warning("Silero VAD prewarm failed: %s", exc)
+        finally:
+            vad_ready.set()
+
+    threading.Thread(target=_load, daemon=True).start()
 
 
 server.setup_fnc = _prewarm
@@ -232,7 +248,15 @@ async def entrypoint(ctx: JobContext) -> None:
         },
     )
 
+    vad_ready = ctx.proc.userdata.get("vad_ready")
+    if vad_ready is not None and not vad_ready.is_set():
+        # First job to land on a process whose background VAD load (see
+        # _prewarm) hasn't finished yet — give it a bounded grace period
+        # rather than blocking process init on the full ~35s load.
+        await asyncio.to_thread(vad_ready.wait, 10.0)
     vad = ctx.proc.userdata.get("vad")
+    if vad is None:
+        logger.warning("Starting session without VAD (prewarm not ready or failed)")
     if session_type == HIRING_MANAGER_DISCOVERY:
         system_prompt = HIRING_MANAGER_DISCOVERY_SYSTEM_PROMPT
         opening_instructions = DISCOVERY_OPENING_INSTRUCTIONS

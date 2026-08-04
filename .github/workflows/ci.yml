@@ -77,3 +77,38 @@ jobs:
       - name: pip-audit (ai-service)
         working-directory: ai-service
         run: pip-audit -r requirements.txt
+
+  deploy-platform:
+    name: Deploy platform (Vercel)
+    needs: platform
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx vercel --prod --token "${{ secrets.VERCEL_TOKEN }}" --yes
+
+  deploy-ai-service:
+    name: Deploy AI service (Docker)
+    needs: ai-service
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ai-service
+          push: true
+          tags: worksajalgrd/hire-os-ai:latest

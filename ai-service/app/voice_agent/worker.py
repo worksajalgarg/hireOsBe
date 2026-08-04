@@ -40,8 +40,8 @@ import hashlib
 import json
 import logging
 import os
-import threading
 from pathlib import Path
+import threading
 
 from dotenv import load_dotenv
 from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, cli

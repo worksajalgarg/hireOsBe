@@ -199,6 +199,11 @@ def _room_metadata(ctx: JobContext) -> dict:
     covers the one deliberate outbound exception: post-call transcript
     delivery.)"""
     raw = ctx.room.metadata or "{}"
+    logger.warning(  # TEMP DIAGNOSTIC — remove after debugging
+        "TEMP_DIAG raw room metadata len=%d sig_tail=%s",
+        len(raw),
+        raw[-16:] if len(raw) >= 16 else raw,
+    )
     try:
         return json.loads(raw)
     except json.JSONDecodeError:

@@ -1,0 +1,1014 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "AuthController_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "AuthController_refresh",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/sso/callback": {
+      "post": {
+        "operationId": "AuthController_ssoCallback",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsoCallbackDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/forgot-password": {
+      "post": {
+        "operationId": "AuthController_forgotPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/reset-password": {
+      "post": {
+        "operationId": "AuthController_resetPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/verify": {
+      "post": {
+        "operationId": "AuthController_mfaVerify",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaVerifyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/accept-invite": {
+      "post": {
+        "operationId": "AuthController_acceptInvite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/audit-events": {
+      "get": {
+        "operationId": "AuditController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/tenants": {
+      "post": {
+        "operationId": "TenantController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTenantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/me": {
+      "get": {
+        "operationId": "TenantController_getCurrent",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tenants"
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "operationId": "UsersController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/profile": {
+      "patch": {
+        "operationId": "UsersController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/me/change-password": {
+      "post": {
+        "operationId": "UsersController_changePassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "post": {
+        "operationId": "UsersController_invite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "operationId": "UsersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/role": {
+      "patch": {
+        "operationId": "UsersController_changeRole",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/workspace/settings": {
+      "get": {
+        "operationId": "WorkspaceController_getSettings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workspace"
+        ]
+      },
+      "patch": {
+        "operationId": "WorkspaceController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/members": {
+      "get": {
+        "operationId": "WorkspaceController_listMembers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/members/invite": {
+      "post": {
+        "operationId": "WorkspaceController_invite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMemberDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/members/{userId}/role": {
+      "patch": {
+        "operationId": "WorkspaceController_changeRole",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemberRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/workspace/members/{userId}": {
+      "delete": {
+        "operationId": "WorkspaceController_remove",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "workspace"
+        ]
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "operationId": "RolesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      },
+      "post": {
+        "operationId": "RolesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "roles"
+        ]
+      }
+    },
+    "/api/v1/role-contexts/_stub": {
+      "get": {
+        "operationId": "RoleContextController_stub",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RoleContext"
+        ]
+      }
+    },
+    "/api/v1/candidates/_stub": {
+      "get": {
+        "operationId": "CandidatesController_stub",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Candidates"
+        ]
+      }
+    },
+    "/api/v1/workflow/_stub": {
+      "get": {
+        "operationId": "WorkflowController_stub",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Workflow"
+        ]
+      }
+    },
+    "/api/v1/integrations/_stub": {
+      "get": {
+        "operationId": "IntegrationsController_stub",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
+    "/api/v1/interviews": {
+      "post": {
+        "operationId": "InterviewsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInterviewSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/join": {
+      "post": {
+        "operationId": "InterviewsController_join",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinInterviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/{id}/token": {
+      "post": {
+        "operationId": "InterviewsController_recruiterToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/{id}/end": {
+      "post": {
+        "operationId": "InterviewsController_end",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/internal/interview-sessions/{id}/transcript": {
+      "post": {
+        "operationId": "InternalInterviewsController_ingestTranscript",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTranscriptDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "InternalInterviews"
+        ]
+      }
+    },
+    "/api/v1/prompts": {
+      "get": {
+        "operationId": "PromptsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      },
+      "post": {
+        "operationId": "PromptsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePromptTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      }
+    },
+    "/api/v1/prompts/{id}": {
+      "get": {
+        "operationId": "PromptsController_getOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      },
+      "patch": {
+        "operationId": "PromptsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePromptTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      },
+      "delete": {
+        "operationId": "PromptsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "HireOS Platform API",
+    "description": "Auth, RBAC, workspace, and hiring platform APIs",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "LoginDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "SsoCallbackDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "MfaVerifyDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "AcceptInviteDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateTenantDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "InviteUserDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ChangeRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateWorkspaceSettingsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "InviteMemberDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateMemberRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateInterviewSessionDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "JoinInterviewDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "IngestTranscriptDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreatePromptTemplateDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdatePromptTemplateDto": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  }
+}

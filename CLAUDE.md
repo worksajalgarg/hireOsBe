@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Repository scope
 
 This is **hireOsBe** — the backend repo for the Enterprise AI Hiring Platform, split out from a former monorepo. It contains two services:
-- `platform/` — NestJS API (tenant/RBAC, users, audit, plus stub modules for role-context, candidates, workflow, integrations).
-- `ai-service/` — FastAPI AI control plane (model gateway + stub agent routers).
+- `platform/` — NestJS API (tenant/RBAC, users, audit, `interviews/` — LiveKit session/token minting + Egress trigger, plus stub modules for role-context, candidates, workflow, integrations).
+- `ai-service/` — FastAPI AI control plane (model gateway + `voice_agent/` — a LiveKit Agents worker that conducts the AI voice interview, POC — + stub agent routers).
 
 The frontend (`hireOsFe`, a sibling repo) has no backend logic of its own and talks to `platform/` over HTTP only. If a task is about rendering UI, routing, or client-side state, it belongs in `hireOsFe`, not here.
 
@@ -28,7 +28,7 @@ The system is split into three layers with a hard boundary between them:
 2. **Core hiring platform** (`platform/` in this repo) — a **NestJS modular monolith** (deliberately not microservices/Kubernetes for MVP) handling tenant & RBAC, role context, candidates, workflow, audit & consent, integrations. Communicates via domain events + REST/async commands.
 3. **AI intelligence & control** (`ai-service/` in this repo) — a separately deployable **Python/FastAPI AI service** acting as the sole model gateway. Modules: Role Intelligence, Resume Intelligence, Matching Engine, Interview Orchestrator, Evaluation Engine.
 
-**Non-negotiable guardrail**: model providers (OpenAI/Claude/Gemini) are never called directly from product modules — every request passes through `ai-service`'s model gateway (`ai-service/app/model_gateway/`), with schema validation and a versioned use-case policy. This boundary is enforced by an automated test (`ai-service/tests/test_model_gateway_boundary.py`) that fails the build if any file outside `model_gateway/` imports a provider SDK. The AI service uses the realtime model only to *conduct* the interview; a separate offline evaluator scores it against a versioned rubric. **Final ranking is produced by a deterministic scoring engine — LLMs cannot modify weights, thresholds, or eligibility rules** (see `docs/adr/0003-deterministic-final-scoring.md`).
+**Non-negotiable guardrail**: model providers (OpenAI/Claude/Gemini) are never called directly from product modules — every request passes through `ai-service`'s model gateway (`ai-service/app/model_gateway/`), with schema validation and a versioned use-case policy. This boundary is enforced by an automated test (`ai-service/tests/test_model_gateway_boundary.py`) that fails the build if any file outside `model_gateway/` imports a provider SDK; `ai-service/app/voice_agent/` is scanned like every other agent module — its LLM turn goes through `model_gateway.run()` via `voice_agent/gateway_llm.py`, never a direct provider call. The AI service uses the realtime model only to *conduct* the interview; a separate offline evaluator scores it against a versioned rubric. **Final ranking is produced by a deterministic scoring engine — LLMs cannot modify weights, thresholds, or eligibility rules** (see `docs/adr/0003-deterministic-final-scoring.md`).
 
 Data layer: PostgreSQL (+ pgvector for semantic matching, tenant RLS) as system of record via Prisma with a `pg` driver adapter (`platform/src/common/prisma.service.ts`), encrypted object storage (S3-class, MinIO locally) for resumes/audio/reports, Redis for session/cache, SQS-style async workers (ElasticMQ locally) for parsing/evaluation/reports/integrations, deterministic scoring service, and full observability (OTel/Langfuse/Sentry-class tracing, not yet implemented). Every AI decision remains human-reviewable and overridable, and is tied to an immutable audit trail (`platform/src/audit/`: rubric/model/prompt version, evidence, human action).
 
@@ -41,12 +41,14 @@ Each AI "agent" (`ai-service/app/agents/*`) has a hard boundary it cannot cross 
 | Role Context Agent | generate/refine success profile, criteria, evidence anchors | publish a rubric without user approval |
 | Resume Evidence Agent | extract claims, timeline, evidence, verification topics | infer missing experience as fact |
 | Interview Designer Agent | create common + candidate-specific questions, scoring anchors | launch unapproved questions |
-| Voice Interviewer | conduct approved interview, bounded probes | change rubric/recommendation policy or access other candidates |
+| Voice Interviewer | conduct approved interview, bounded probes (`ai-service/app/voice_agent/`, POC) | change rubric/recommendation policy or access other candidates |
 | Evaluation Agent | map evidence to criteria, confidence, recommendation | issue final hiring decision |
 | Responsible AI Agent | grounding, prohibited-attribute, policy compliance checks | rewrite source evidence (can only block publication) |
 | Quality Monitor | model/speech/latency/cost/drift signals | modify production policy without approved change |
 
 Recommended model routing (from the technical roadmap, subject to re-pricing at implementation time — see `ai-service/app/model_gateway/use_case_policy.py`): high-volume/structured work (resume parsing, candidate report) → smaller/cheaper models; complex reasoning (role rubric generation, interview evaluation) → stronger models; realtime voice → low-latency speech model behind a provider abstraction; **final ranking → no LLM at all**, deterministic rules only. Expected mix: ~75% low-cost tier, ~22% high-reasoning tier, ~3% escalation.
+
+**LiveKit voice interview (POC)**: `livekit-server` + `livekit-egress` run self-hosted via `infra/docker-compose.yml` (config in `infra/livekit/`); `platform/src/interviews/` mints room/access tokens and triggers Egress; `ai-service/app/voice_agent/` is the dispatched `livekit-agents` worker (Silero VAD, OpenAI STT/TTS, `GatewayLLM` for the conversational turn). Scoped narrowly (one candidate screen, OpenAI-only, no retention job) but built to the same standard as the rest of the codebase — not a throwaway spike. Swapping to LiveKit Cloud later is an env-var change (`LIVEKIT_URL`/`LIVEKIT_API_KEY`/`LIVEKIT_API_SECRET`), not a code fork.
 
 ## Responsible AI constraints (hard requirements, not aspirational)
 
@@ -68,7 +70,7 @@ These are launch-blocking acceptance criteria, not nice-to-haves — treat any c
 
 ## Shared type contracts
 
-`platform/src/common/types/` is a **hand-maintained duplicate** of hireOsFe's `lib/types/`. If you change a shared type here (`Tenant`, `User`, `AuditEvent`, `CandidateEvaluation`), make the same change in `hireOsFe` — there is no automated sync or shared package between the two repos at this stage.
+`platform/src/common/types/` is a **hand-maintained duplicate** of hireOsFe's `lib/types/`. If you change a shared type here (`Tenant`, `User`, `AuditEvent`, `CandidateEvaluation`, `InterviewSession`), make the same change in `hireOsFe` — there is no automated sync or shared package between the two repos at this stage.
 
 ## 12-week delivery plan (reference)
 
@@ -79,7 +81,7 @@ Six two-week sprints, each ending with a demonstrable increment and a measurable
 | 1 | 1-2 | Foundation complete (repo, CI/CD, tenant model, audit foundation) — **this is what's built so far** |
 | 2 | 3-4 | Core ATS workflow (role builder, scorecard editor, candidate pipeline) |
 | 3 | 5-6 | Explainable shortlist (matching, review experience, rejection controls) |
-| 4 | 7-8 | Interview alpha (voice UX, device checks, recovery flows) |
+| 4 | 7-8 | Interview alpha (voice UX, device checks, recovery flows) — **a narrow LiveKit POC (room + agent + Egress) exists ahead of schedule; the full FR-501–508 candidate flow is still this sprint's work** |
 | 5 | 9-10 | Enterprise beta (admin, audit, retention, integration config) |
 | 6 | 11-12 | Design-partner go-live (pilot feedback, usability fixes, release docs) |
 

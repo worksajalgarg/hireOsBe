@@ -5,25 +5,26 @@ export interface TenantScopedRequest extends Request {
   tenantId?: string;
   actorId?: string;
   actorRole?: string;
+  sessionId?: string;
+  permissions?: string[];
 }
 
 /**
- * Reads tenant/actor identity off request headers and stamps it onto the
- * request object before any controller runs. This is the single point where
- * tenant isolation begins per PRD Section 8.1 ("tenant ID enforced in
- * application, database query, object path, cache and audit layers").
- *
- * Headers are a placeholder until session-based auth lands (apps/web auth
- * wiring, tracked separately) — once that exists, this middleware should
- * derive tenantId/actorId/actorRole from the verified session instead of
- * trusting client-supplied headers.
+ * Legacy header fallback for local bootstrap/scripts. JWT claims from
+ * JwtAuthGuard overwrite these for authenticated `/api/v1` routes.
  */
 @Injectable()
 export class TenantContextMiddleware implements NestMiddleware {
   use(req: TenantScopedRequest, _res: Response, next: NextFunction) {
-    req.tenantId = req.header("x-tenant-id") ?? undefined;
-    req.actorId = req.header("x-actor-id") ?? undefined;
-    req.actorRole = req.header("x-actor-role") ?? undefined;
+    if (!req.tenantId) {
+      req.tenantId = req.header("x-tenant-id") ?? undefined;
+    }
+    if (!req.actorId) {
+      req.actorId = req.header("x-actor-id") ?? undefined;
+    }
+    if (!req.actorRole) {
+      req.actorRole = req.header("x-actor-role") ?? undefined;
+    }
     next();
   }
 }

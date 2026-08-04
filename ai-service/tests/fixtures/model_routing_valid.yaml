@@ -1,0 +1,60 @@
+role_intake_scorecard:
+  chain:
+    - provider: openrouter
+      model: anthropic/claude-sonnet-5
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: test fixture
+
+resume_parsing:
+  chain:
+    - provider: groq
+      model: llama-3.1-8b-instant
+  rationale: test fixture
+
+evidence_matching:
+  chain:
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: test fixture
+
+interview_evaluation:
+  chain:
+    - provider: openrouter
+      model: anthropic/claude-sonnet-5
+  rationale: test fixture
+
+candidate_report:
+  chain:
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: test fixture
+
+voice_interview_turn:
+  chain:
+    - provider: openrouter
+      model: nvidia/nemotron-3-nano-30b-a3b:free
+      timeout_s: 8.0
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.3-70b-versatile
+  rationale: test fixture
+
+voice_interview_summary:
+  chain:
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: test fixture
+
+role_discovery_turn:
+  chain:
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: test fixture
+
+role_discovery_extraction:
+  chain:
+    - provider: gemini
+      model: gemini-flash-latest
+  rationale: test fixture

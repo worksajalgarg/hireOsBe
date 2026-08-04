@@ -9,37 +9,305 @@ datasource db {
   provider = "postgresql"
 }
 
-enum UserRole {
-  RECRUITER
-  HIRING_MANAGER
-  ADMIN
-  AUDITOR
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+enum InterviewSessionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
 }
 
 model Tenant {
-  id        String   @id @default(uuid())
-  name      String
-  domain    String   @unique
-  createdAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  name         String
+  domain       String   @unique
+  logoUrl      String?  @map("logo_url")
+  settingsJson Json     @default("{}") @map("settings_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  users       User[]
-  auditEvents AuditEvent[]
+  policies     TenantPolicy[]
+  roles        Role[]
+  memberships  TenantUserRole[]
+  sessions     UserSession[]
+  invitations  TenantInvitation[]
+  auditEvents  AuditEvent[]
+  interviewSessions InterviewSession[]
+  promptTemplates   PromptTemplate[]
 
   @@map("tenants")
 }
 
 model User {
-  id        String   @id @default(uuid())
-  tenantId  String
-  email     String
-  role      UserRole
-  createdAt DateTime @default(now())
+  id           String     @id @default(uuid())
+  email        String     @unique
+  passwordHash String?    @map("password_hash")
+  status       UserStatus @default(ACTIVE)
+  ssoProvider  String?    @map("sso_provider")
+  ssoId        String?    @map("sso_id")
+  isMfaEnabled Boolean    @default(false) @map("is_mfa_enabled")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  lastLoginIp  String?    @map("last_login_ip")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  profile             UserProfile?
+  memberships         TenantUserRole[]
+  sessions            UserSession[]
+  passwordResetTokens PasswordResetToken[]
+  invitationsSent     TenantInvitation[]   @relation("InvitationInviter")
+  policiesUpdated     TenantPolicy[]       @relation("PolicyUpdater")
 
-  @@unique([tenantId, email])
-  @@index([tenantId])
+  @@index([ssoProvider, ssoId])
   @@map("users")
+}
+
+model UserProfile {
+  id              String  @id @default(uuid())
+  userId          String  @unique @map("user_id")
+  firstName       String? @map("first_name")
+  lastName        String? @map("last_name")
+  phone           String?
+  avatarUrl       String? @map("avatar_url")
+  jobTitle        String? @map("job_title")
+  preferencesJson Json    @default("{}") @map("preferences_json")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_profiles")
+}
+
+model Permission {
+  id          String @id @default(uuid())
+  slug        String @unique
+  module      String
+  description String
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model Role {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  description  String?
+  isSystemRole Boolean  @default(false) @map("is_system_role")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rolePermissions RolePermission[]
+  memberships     TenantUserRole[]
+  invitations     TenantInvitation[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model TenantUserRole {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  userId     String   @map("user_id")
+  roleId     String   @map("role_id")
+  assignedAt DateTime @default(now()) @map("assigned_at")
+  scopeJson  Json?    @map("scope_json")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@map("tenant_user_roles")
+}
+
+model UserSession {
+  id               String   @id @default(uuid())
+  userId           String   @map("user_id")
+  tenantId         String   @map("tenant_id")
+  refreshTokenHash String   @map("refresh_token_hash")
+  userAgent        String?  @map("user_agent")
+  ipAddress        String?  @map("ip_address")
+  expiresAt        DateTime @map("expires_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  revokedAt        DateTime? @map("revoked_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@index([refreshTokenHash])
+  @@map("user_sessions")
+}
+
+model TenantPolicy {
+  id                     String   @id @default(uuid())
+  tenantId               String   @unique @map("tenant_id")
+  retentionDays          Int      @default(90) @map("retention_days")
+  audioStorageEnabled    Boolean  @default(false) @map("audio_storage_enabled")
+  humanOverrideRequired  Boolean  @default(true) @map("human_override_required")
+  updatedBy              String?  @map("updated_by")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  updater User?  @relation("PolicyUpdater", fields: [updatedBy], references: [id], onDelete: SetNull)
+
+  @@map("tenant_policies")
+}
+
+model TenantInvitation {
+  id              String           @id @default(uuid())
+  tenantId        String           @map("tenant_id")
+  email           String
+  roleId          String           @map("role_id")
+  tokenHash       String           @map("token_hash")
+  status          InvitationStatus @default(PENDING)
+  invitedBy       String           @map("invited_by")
+  expiresAt       DateTime         @map("expires_at")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  acceptedAt      DateTime?        @map("accepted_at")
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role    Role   @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  inviter User   @relation("InvitationInviter", fields: [invitedBy], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, email])
+  @@index([tokenHash])
+  @@map("tenant_invitations")
+}
+
+model PromptTemplate {
+  id                  String   @id @default(uuid())
+  tenantId            String   @map("tenant_id")
+  title               String
+  description         String?
+  category            String   @default("Technical")
+  conversationFlow    String?  @db.Text @map("conversation_flow")
+  openingInstructions String?  @db.Text @map("opening_instructions")
+  silenceInstructions String?  @db.Text @map("silence_instructions")
+  systemBoundaries    String?  @db.Text @map("system_boundaries")
+  isDefault           Boolean  @default(false) @map("is_default")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sessions  InterviewSession[]
+
+  @@index([tenantId])
+  @@map("prompt_templates")
+}
+
+/// LiveKit-backed AI voice interview session. `candidateRef` is a placeholder
+/// free-text reference (no Candidate model exists yet — lands Sprint 3); this
+/// stays a plain string until that model exists, at which point it becomes a
+/// real FK.
+model InterviewSession {
+  id                 String                 @id @default(uuid())
+  tenantId           String                 @map("tenant_id")
+  candidateRef       String                 @map("candidate_ref")
+  promptId           String?                @map("prompt_id")
+  promptSnapshotJson Json?                  @map("prompt_snapshot_json")
+  roomName           String                 @unique @map("room_name")
+  inviteTokenHash    String                 @map("invite_token_hash")
+  inviteExpiresAt    DateTime               @map("invite_expires_at")
+  status             InterviewSessionStatus @default(PENDING)
+  egressId           String?                @map("egress_id")
+  recordingUrl       String?                @map("recording_url")
+  startedAt          DateTime?              @map("started_at")
+  endedAt            DateTime?              @map("ended_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  prompt PromptTemplate? @relation(fields: [promptId], references: [id], onDelete: SetNull)
+  transcript InterviewTranscript?
+  summary    InterviewSummary?
+
+  @@index([tenantId])
+  @@index([inviteTokenHash])
+  @@map("interview_sessions")
+}
+
+/// Full transcript of a completed interview, pushed by ai-service's voice_agent
+/// worker after the call ends (see docs/adr/0006-interview-transcript-storage.md).
+/// One row per session — ai-service holds the whole conversation in memory for
+/// the call's duration and sends it once at shutdown, not incrementally.
+model InterviewTranscript {
+  id                 String   @id @default(uuid())
+  interviewSessionId String   @unique @map("interview_session_id")
+  tenantId           String   @map("tenant_id")
+  linesJson          Json     @map("lines_json") // [{speaker, text, stage?, ts}, ...]
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  interviewSession InterviewSession @relation(fields: [interviewSessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("interview_transcripts")
+}
+
+/// Structured post-call evaluation + operational metadata for one interview.
+/// evaluationJson is an InterviewEvaluationSummary (see
+/// common/types/interview-evaluation-summary.ts) — a scoped-down,
+/// evidence-based shape (no bare score, ever) used until a real rubric/role
+/// system exists to populate the full CandidateEvaluation type's
+/// roleId/rubricVersion honestly.
+model InterviewSummary {
+  id                     String   @id @default(uuid())
+  interviewSessionId     String   @unique @map("interview_session_id")
+  tenantId               String   @map("tenant_id")
+  rollingSummaryText     String?  @db.Text @map("rolling_summary_text")
+  evaluationJson         Json     @map("evaluation_json")
+  promptVersionsUsedJson Json     @map("prompt_versions_used_json")
+  modelUsageJson         Json     @map("model_usage_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  interviewSession InterviewSession @relation(fields: [interviewSessionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("interview_summaries")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 /// Append-only. No application code should ever issue an UPDATE or DELETE
@@ -47,15 +315,15 @@ model User {
 /// Postgres instance is provisioned (see docs/threat-model.md).
 model AuditEvent {
   id         String   @id @default(uuid())
-  tenantId   String
-  actorId    String
-  eventType  String
-  entityType String
-  entityId   String
+  tenantId   String   @map("tenant_id")
+  actorId    String   @map("actor_id")
+  eventType  String   @map("event_type")
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
   payload    Json
-  createdAt  DateTime @default(now())
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([tenantId, entityType, entityId])

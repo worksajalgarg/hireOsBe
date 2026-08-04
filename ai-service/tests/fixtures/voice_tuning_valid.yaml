@@ -1,0 +1,8 @@
+stt:
+  model: deepgram/nova-3
+  fallback_models:
+    - assemblyai/universal-streaming:en
+
+tts:
+  model: elevenlabs/eleven_flash_v2_5
+  fallback_models: []

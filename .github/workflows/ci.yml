@@ -83,9 +83,11 @@ jobs:
     needs: platform
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: platform
+    # Not scoped to platform/ via `defaults.run.working-directory` — the
+    # Vercel project's own dashboard setting (Root Directory = "platform")
+    # already resolves that, relative to repo root. Running this step from
+    # inside platform/ too would double it to platform/platform (confirmed
+    # the hard way: "provided path .../platform/platform does not exist").
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}

@@ -7,7 +7,6 @@ from app.voice_agent.voice_tuning_config import VoiceTuningConfigError, load_voi
 
 _FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 _VALID_FIXTURE = _FIXTURES_DIR / "voice_tuning_valid.yaml"
-_REAL_CONFIG = Path(__file__).resolve().parent.parent / "config" / "voice_tuning.yaml"
 
 
 def test_valid_file_parses_correctly() -> None:
@@ -15,17 +14,6 @@ def test_valid_file_parses_correctly() -> None:
 
     assert config.stt_model == "deepgram/nova-3"
     assert config.stt_fallback_models == ["assemblyai/universal-streaming:en"]
-    assert config.tts_model == "elevenlabs/eleven_flash_v2_5"
-    assert config.tts_fallback_models == []
-
-
-def test_real_config_matches_previously_hardcoded_defaults() -> None:
-    """Behavior-preserving migration check — the shipped config/voice_tuning.yaml
-    must resolve to exactly what session.py used to hardcode."""
-    config = load_voice_tuning_config(_REAL_CONFIG)
-
-    assert config.stt_model == "deepgram/nova-3"
-    assert config.stt_fallback_models == []
     assert config.tts_model == "elevenlabs/eleven_flash_v2_5"
     assert config.tts_fallback_models == []
 

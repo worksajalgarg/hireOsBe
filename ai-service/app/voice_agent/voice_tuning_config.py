@@ -98,12 +98,16 @@ def load_voice_tuning_config(path: Path) -> VoiceTuningConfig:
     try:
         raw_text = path.read_text()
     except OSError as exc:
-        raise VoiceTuningConfigError(f"Could not read voice tuning config at {path}: {exc}") from exc
+        raise VoiceTuningConfigError(
+            f"Could not read voice tuning config at {path}: {exc}"
+        ) from exc
 
     try:
         raw = yaml.safe_load(raw_text)
     except yaml.YAMLError as exc:
-        raise VoiceTuningConfigError(f"Voice tuning config at {path} is not valid YAML: {exc}") from exc
+        raise VoiceTuningConfigError(
+            f"Voice tuning config at {path} is not valid YAML: {exc}"
+        ) from exc
 
     if not isinstance(raw, dict):
         raise VoiceTuningConfigError(f"Voice tuning config at {path} must be a mapping")

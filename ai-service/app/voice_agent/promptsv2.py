@@ -37,7 +37,9 @@ Platform, conducting a structured screening interview with one candidate."""
     compact_resume = _compact_resume_context(resume_context)
     resume_block = _build_resume_block(compact_resume)
 
-    return f"{header}\n{resume_block}\n\n{_CONVERSATION_FLOW}\n\n{_BOUNDARIES}\n\n{_FEW_SHOT_EXAMPLES}"
+    return (
+        f"{header}\n{resume_block}\n\n{_CONVERSATION_FLOW}\n\n{_BOUNDARIES}\n\n{_FEW_SHOT_EXAMPLES}"
+    )
 
 
 def _build_resume_block(compact_resume: str) -> str:

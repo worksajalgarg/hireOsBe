@@ -19,6 +19,17 @@ export interface PromptRecord {
   updatedAt: Date;
 }
 
+interface PromptTemplateDelegate {
+  findMany(args: {
+    where: { tenantId: string };
+    orderBy: { createdAt: string };
+  }): Promise<PromptRecord[]>;
+  findFirst(args: { where: { id: string; tenantId: string } }): Promise<PromptRecord | null>;
+  create(args: { data: Record<string, unknown> }): Promise<PromptRecord>;
+  update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<PromptRecord>;
+  delete(args: { where: { id: string } }): Promise<PromptRecord>;
+}
+
 @Injectable()
 export class PromptsService implements OnModuleInit {
   constructor(
@@ -49,18 +60,12 @@ export class PromptsService implements OnModuleInit {
     }
   }
 
-  private get delegate(): {
-    findMany(args: { where: { tenantId: string }; orderBy: { createdAt: string } }): Promise<PromptRecord[]>;
-    findFirst(args: { where: { id: string; tenantId: string } }): Promise<PromptRecord | null>;
-    create(args: { data: Record<string, unknown> }): Promise<PromptRecord>;
-    update(args: { where: { id: string }; data: Record<string, unknown> }): Promise<PromptRecord>;
-    delete(args: { where: { id: string } }): Promise<PromptRecord>;
-  } | undefined {
-    return (this.prisma as unknown as Record<string, unknown>).promptTemplate as any;
+  private get delegate(): PromptTemplateDelegate | undefined {
+    return (this.prisma as unknown as { promptTemplate?: PromptTemplateDelegate }).promptTemplate;
   }
 
   async listForTenant(tenantId: string): Promise<PromptRecord[]> {
-    const rows = await this.prisma.$queryRaw<any[]>`
+    const rows = await this.prisma.$queryRaw<PromptRecord[]>`
       SELECT id, tenant_id as "tenantId", title, description, category,
              conversation_flow as "conversationFlow",
              opening_instructions as "openingInstructions",
@@ -83,7 +88,7 @@ export class PromptsService implements OnModuleInit {
       if (!prompt) throw new NotFoundException("Prompt template not found");
       return prompt;
     }
-    const rows = await this.prisma.$queryRaw<any[]>`
+    const rows = await this.prisma.$queryRaw<PromptRecord[]>`
       SELECT id, tenant_id as "tenantId", title, description, category,
              conversation_flow as "conversationFlow",
              opening_instructions as "openingInstructions",
@@ -117,7 +122,7 @@ export class PromptsService implements OnModuleInit {
       });
     } else {
       const id = randomUUID();
-      const rows = await this.prisma.$queryRaw<any[]>`
+      const rows = await this.prisma.$queryRaw<PromptRecord[]>`
         INSERT INTO prompt_templates (id, tenant_id, title, description, category, conversation_flow, opening_instructions, silence_instructions, system_boundaries, is_default, created_at, updated_at)
         VALUES (${id}, ${tenantId}, ${dto.title}, ${dto.description ?? null}, ${dto.category ?? "Technical"}, ${dto.conversationFlow ?? null}, ${dto.openingInstructions ?? null}, ${dto.silenceInstructions ?? null}, ${dto.systemBoundaries ?? null}, ${dto.isDefault ?? false}, NOW(), NOW())
         RETURNING id, tenant_id as "tenantId", title, description, category, conversation_flow as "conversationFlow", opening_instructions as "openingInstructions", silence_instructions as "silenceInstructions", system_boundaries as "systemBoundaries", is_default as "isDefault", created_at as "createdAt", updated_at as "updatedAt"
@@ -161,7 +166,7 @@ export class PromptsService implements OnModuleInit {
         },
       });
     } else {
-      const rows = await this.prisma.$queryRaw<any[]>`
+      const rows = await this.prisma.$queryRaw<PromptRecord[]>`
         UPDATE prompt_templates
         SET title = COALESCE(${dto.title ?? null}, title),
             description = COALESCE(${dto.description ?? null}, description),

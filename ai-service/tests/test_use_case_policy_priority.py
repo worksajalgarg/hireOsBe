@@ -21,7 +21,7 @@ def test_apply_provider_priority_reorders_matching_use_case() -> None:
     snapshot = _snapshot()
     try:
         before = [c.provider for c in get_policy("voice_interview_turn").chain]
-        assert before == [Provider.OPENROUTER, Provider.GEMINI, Provider.GROQ]
+        assert before == [Provider.GEMINI, Provider.GROQ, Provider.OPENROUTER]
 
         apply_provider_priority(["voice_interview_turn"], [Provider.GROQ, Provider.GEMINI])
 
@@ -38,7 +38,7 @@ def test_apply_provider_priority_keeps_unmentioned_providers_in_relative_order()
         # original relative order, appended after.
         apply_provider_priority(["voice_interview_turn"], [Provider.GROQ])
         after = [c.provider for c in get_policy("voice_interview_turn").chain]
-        assert after == [Provider.GROQ, Provider.OPENROUTER, Provider.GEMINI]
+        assert after == [Provider.GROQ, Provider.GEMINI, Provider.OPENROUTER]
     finally:
         _restore(snapshot)
 

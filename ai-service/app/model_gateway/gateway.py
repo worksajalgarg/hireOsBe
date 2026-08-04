@@ -75,7 +75,7 @@ from pydantic import BaseModel
 
 from .circuit_breaker import circuit_breaker
 from .metrics_log import append_metric, is_dev_metrics_enabled
-from .providers import Provider, ProviderClient, get_provider_client
+from .providers import Provider, get_provider_client
 from .use_case_policy import ProviderChoice, UseCasePolicy, get_policy
 
 logger = logging.getLogger("model_gateway")

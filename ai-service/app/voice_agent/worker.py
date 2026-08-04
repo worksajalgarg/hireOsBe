@@ -48,11 +48,11 @@ from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, cl
 from livekit.agents.job import AutoSubscribe
 from livekit.plugins import silero
 
+from ..model_gateway.gateway import model_gateway
 from ..model_gateway.metrics_log import reset_dev_metrics
 from ..model_gateway.providers import Provider
 from ..model_gateway.routing_config import load_routing_config
 from ..model_gateway.use_case_policy import USE_CASE_POLICIES, apply_provider_priority
-from ..model_gateway.gateway import model_gateway
 from .config import LIVEKIT_INFERENCE, VoiceAgentSettings, load_settings
 from .controls import register_control_handlers
 from .conversation_start import register_silence_handling
@@ -153,7 +153,9 @@ _VOICE_LLM_USE_CASES = [
 _routing_config_mtime: float | None = None
 
 
-def _reload_routing_config_if_changed(path: Path, priority: list[Provider], settings: VoiceAgentSettings) -> None:
+def _reload_routing_config_if_changed(
+    path: Path, priority: list[Provider], settings: VoiceAgentSettings
+) -> None:
     global _routing_config_mtime
     try:
         mtime = path.stat().st_mtime
@@ -213,7 +215,9 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
     settings = load_settings()
-    _reload_routing_config_if_changed(settings.routing_config_path, settings.llm_provider_priority, settings)
+    _reload_routing_config_if_changed(
+        settings.routing_config_path, settings.llm_provider_priority, settings
+    )
 
     if is_dev_metrics_enabled():
         # One dashboard, one interview at a time locally — reset at the
@@ -227,8 +231,12 @@ async def entrypoint(ctx: JobContext) -> None:
     # docs/adr/0006-interview-transcript-storage.md's Phase E section) —
     # fails closed: no session is built, no STT/LLM/TTS cost is incurred,
     # for a room that didn't come from platform's own session creation.
-    is_console_room = ctx.room.name in ("console", "console-room") or ctx.room.name.startswith("console")
-    if not is_console_room and not verify_metadata_signature(metadata, settings.internal_service_secret):
+    is_console_room = ctx.room.name in ("console", "console-room") or ctx.room.name.startswith(
+        "console"
+    )
+    if not is_console_room and not verify_metadata_signature(
+        metadata, settings.internal_service_secret
+    ):
         logger.error(
             "Room %s has missing/invalid metadata signature — refusing to start a session",
             ctx.room.name,

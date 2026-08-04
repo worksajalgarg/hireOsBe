@@ -110,5 +110,5 @@ export class IngestTranscriptDto {
   /** Per-use-case aggregate: provider/model/latency/fallback counts for
    * this session. Free-form — shape owned by ai-service's model_gateway. */
   @IsOptional()
-  modelUsage?: any;
+  modelUsage?: Record<string, unknown>;
 }

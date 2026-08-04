@@ -61,7 +61,9 @@ class ProviderCircuitBreaker:
         state.failure_count = 0
         state.cooldown_until = 0.0
 
-    def record_rate_limit(self, provider: Provider, cooldown_s: float = _RATE_LIMIT_COOLDOWN_S) -> None:
+    def record_rate_limit(
+        self, provider: Provider, cooldown_s: float = _RATE_LIMIT_COOLDOWN_S
+    ) -> None:
         """Provider hit HTTP 429 — apply a long cooldown."""
         state = self._get(provider)
         state.cooldown_until = time.monotonic() + cooldown_s

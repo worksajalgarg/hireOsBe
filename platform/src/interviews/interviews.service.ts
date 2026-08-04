@@ -97,7 +97,7 @@ export class InterviewsService {
     } else {
       try {
         if (params.promptId) {
-          const rows = await this.prisma.$queryRaw<any[]>`
+          const rows = await this.prisma.$queryRaw<PromptTemplateRecord[]>`
             SELECT id, title,
                    conversation_flow as "conversationFlow",
                    opening_instructions as "openingInstructions",
@@ -110,7 +110,7 @@ export class InterviewsService {
           if (rows && rows.length > 0) template = rows[0];
         }
         if (!template) {
-          const rows = await this.prisma.$queryRaw<any[]>`
+          const rows = await this.prisma.$queryRaw<PromptTemplateRecord[]>`
             SELECT id, title,
                    conversation_flow as "conversationFlow",
                    opening_instructions as "openingInstructions",
@@ -159,10 +159,11 @@ export class InterviewsService {
       session = await this.prisma.interviewSession.create({
         data: sessionData as Prisma.InterviewSessionCreateInput,
       });
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       if (
-        err?.message?.includes("Unknown argument `promptId`") ||
-        err?.message?.includes("Unknown argument `promptSnapshotJson`")
+        message.includes("Unknown argument `promptId`") ||
+        message.includes("Unknown argument `promptSnapshotJson`")
       ) {
         delete sessionData.promptId;
         delete sessionData.promptSnapshotJson;

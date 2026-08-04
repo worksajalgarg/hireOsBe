@@ -16,3 +16,5 @@ coverage/
 .ruff_cache/
 tsconfig.tsbuildinfo
 ai-service/.dev/
+.vercel
+.env*

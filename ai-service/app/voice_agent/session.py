@@ -118,11 +118,10 @@ def _build_stt_tts(
     # prompt) — this is intentionally one-directional, not full bilingual
     # conversation.
     voice_settings = _tts_voice_settings(settings)
-    stt_kwargs: dict[str, Any] = {"extra_kwargs": {"diarize": True}}
-    if settings.stt_language:
-        stt_kwargs["language"] = settings.stt_language
-
     if settings.voice_provider == DIRECT:
+        stt_kwargs: dict[str, Any] = {"extra_kwargs": {"diarize": True}}
+        if settings.stt_language:
+            stt_kwargs["language"] = settings.stt_language
         stt_client = deepgram.STT(
             api_key=settings.deepgram_api_key, **stt_kwargs
         )
@@ -132,6 +131,9 @@ def _build_stt_tts(
             voice_settings=elevenlabs.VoiceSettings(**voice_settings),
         )
     else:
+        stt_kwargs: dict[str, Any] = {}
+        if settings.stt_language:
+            stt_kwargs["language"] = settings.stt_language
         primary_stt = inference.STT(
             model=settings.stt_model, **stt_kwargs
         )

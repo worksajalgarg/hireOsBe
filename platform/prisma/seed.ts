@@ -6,16 +6,37 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import * as argon2 from "argon2";
+import pg from "pg";
 import {
+  PERMISSIONS,
   SYSTEM_ROLE_NAMES,
   SYSTEM_ROLE_PERMISSIONS,
 } from "../src/common/permissions";
 
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+const rawUrl = process.env.DATABASE_URL || "";
+const cleanUrl = rawUrl
+  .replace(/&?channel_binding=[^&]*/g, "")
+  .replace(/&?sslmode=[^&]*/g, "")
+  .replace(/\?$/, "");
+
+const pool = new pg.Pool({
+  connectionString: cleanUrl,
+  ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 10000,
 });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 async function seedSystemRoles(tenantId: string) {
+  for (const slug of Object.values(PERMISSIONS)) {
+    const moduleName = slug.split(".")[0] || "system";
+    await prisma.permission.upsert({
+      where: { slug },
+      create: { slug, module: moduleName, description: `${slug} permission` },
+      update: {},
+    });
+  }
+
   const permissions = await prisma.permission.findMany();
   const bySlug = new Map(permissions.map((p) => [p.slug, p.id]));
 
@@ -44,6 +65,7 @@ async function seedSystemRoles(tenantId: string) {
 }
 
 async function main() {
+  await prisma.$connect();
   const email = (process.env.SEED_ADMIN_EMAIL ?? "admin@hireos.local").toLowerCase();
   const password = process.env.SEED_ADMIN_PASSWORD ?? "Password123!";
 

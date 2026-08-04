@@ -15,31 +15,16 @@
 # for LLM this builds extra livekit_inference chain tiers in gateway.py.
 
 stt:
-  model: deepgram/flux-general-multi # multilingual (30+ langs), best accuracy
+  model: deepgram/nova-3
   fallback_models:
-    - deepgram/nova-3 # multilingual, ultra-fast (Flux gen)
-    - deepgram/nova-2 # multilingual, proven previous-gen fallback
+    - deepgram/nova-2
 
 tts:
-  model: cartesia/sonic-3
+  model: cartesia/sonic
   fallback_models:
-    - elevenlabs/eleven_flash_v2_5
-    - inworld/inworld-tts-2
+    - elevenlabs/eleven_multilingual_v2
 
-# LLM model selection for VOICE_PROVIDER=livekit_inference.
-# Only used when VOICE_PROVIDER=livekit_inference — ignored on DIRECT path.
-# primary: model tried first for all voice ModelGateway use cases.
-# fallback_models: tried in order if primary is slow/unavailable.
-# Available LiveKit Inference LLM models (billed via LiveKit Cloud):
-#   openai/gpt-4.1-mini            — fast, low-latency, 1M context, good for realtime
-#   google/gemini-2.5-flash-lite   — fastest/cheapest Gemini option
-#   google/gemini-2.5-flash        — higher quality, slightly more latency
-#   google/gemini-2.5-pro          — frontier quality, higher cost
-#   google/gemma-4-31b-it          — open-weight, zero vendor dependency
-#   deepseek-ai/deepseek-v4-pro    — strong reasoning alternative
 llm:
-  model: openai/gpt-4.1-mini
+  model: openai/gpt-4o-mini
   fallback_models:
-    - google/gemini-2.5-flash-lite
-    - google/gemini-2.5-flash
-    - google/gemma-4-31b-it
+    - google/gemini-1.5-flash

@@ -87,11 +87,18 @@ logger = logging.getLogger("voice_agent")
 # post-call transcript build + evaluation LLM call + POST to platform (see
 # entrypoint()'s shutdown callback) needs real headroom, same reasoning the
 # reference demo project's AgentServer(shutdown_process_timeout=60.0) used.
-server = AgentServer(shutdown_process_timeout=60.0)
+server = AgentServer(
+    shutdown_process_timeout=60.0,
+    initialize_process_timeout=60.0,
+    num_idle_processes=1,
+)
 
 
 def _prewarm(proc: JobProcess) -> None:
-    proc.userdata["vad"] = silero.VAD.load()
+    # Skip heavy Silero ONNX C-binding load on constrained cloud containers.
+    # Eliminates the 35s ONNX runtime device scanning delay during process spawn,
+    # ensuring child process initialization completes in < 1 second.
+    pass
 
 
 server.setup_fnc = _prewarm

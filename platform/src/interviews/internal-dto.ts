@@ -103,14 +103,12 @@ export class IngestTranscriptDto {
   @Type(() => InterviewEvaluationSummaryDto)
   evaluation!: InterviewEvaluationSummaryDto;
 
-  /** {agentDefinitionKey: promptVersion} — correlates a regression to an
-   * exact prompt version. Free-form for now (no AgentDefinition table
-   * exists yet — see Phase C, deferred). */
+  @IsOptional()
   @IsObject()
-  promptVersionsUsed!: Record<string, string>;
+  promptVersionsUsed?: Record<string, string>;
 
   /** Per-use-case aggregate: provider/model/latency/fallback counts for
    * this session. Free-form — shape owned by ai-service's model_gateway. */
-  @IsObject()
-  modelUsage!: Record<string, unknown>;
+  @IsOptional()
+  modelUsage?: any;
 }

@@ -106,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install LiveKit CLI
-        run: curl -sSL https://get.livekit.io/cli | bash
+        run: curl -sSL https://raw.githubusercontent.com/livekit/livekit-cli/main/install.sh | bash
       - name: Deploy agent
         run: |
           lk agent deploy \

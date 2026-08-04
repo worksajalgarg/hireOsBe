@@ -3,3 +3,4 @@
 
 [agent]
   id = "CA_neauP8FBPwDy"
+  entrypoint = "app/voice_agent/worker.py"

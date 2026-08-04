@@ -46,7 +46,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, cli
 from livekit.agents.job import AutoSubscribe
-from livekit.plugins import silero
+try:
+    from livekit.plugins import silero
+except ImportError:
+    silero = None
 
 from ..model_gateway.gateway import model_gateway
 from ..model_gateway.metrics_log import reset_dev_metrics
@@ -108,7 +111,8 @@ def _prewarm(proc: JobProcess) -> None:
 
     def _load() -> None:
         try:
-            proc.userdata["vad"] = silero.VAD.load()
+            if silero is not None:
+                proc.userdata["vad"] = silero.VAD.load()
         except Exception as exc:
             logger.warning("Silero VAD prewarm failed: %s", exc)
         finally:
@@ -215,6 +219,12 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
     settings = load_settings()
+    import hashlib as _hashlib  # TEMP DIAGNOSTIC — remove after debugging
+    logger.warning(
+        "TEMP_DIAG internal_service_secret len=%d sha256_8=%s",
+        len(settings.internal_service_secret),
+        _hashlib.sha256(settings.internal_service_secret.encode()).hexdigest()[:8],
+    )
     _reload_routing_config_if_changed(
         settings.routing_config_path, settings.llm_provider_priority, settings
     )

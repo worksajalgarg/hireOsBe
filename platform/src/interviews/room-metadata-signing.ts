@@ -19,7 +19,7 @@ import { createHmac } from "crypto";
 // U+0001 (SOH) — a control character that can't appear in any of these
 // fields in practice, so it can't be used to construct a collision (e.g. a
 // resumeContext crafted to shift field boundaries).
-const FIELD_SEPARATOR = "";
+const FIELD_SEPARATOR = "\x01";
 
 export interface SignableRoomMetadata {
   tenantId: string;

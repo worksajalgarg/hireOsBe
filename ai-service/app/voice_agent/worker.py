@@ -44,6 +44,7 @@ import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
+from livekit import api
 from livekit.agents import AgentServer, AgentSession, JobContext, JobProcess, cli
 from livekit.agents.job import AutoSubscribe
 
@@ -190,20 +191,56 @@ def _reload_routing_config_if_changed(
         )
 
 
-def _room_metadata(ctx: JobContext) -> dict:
+async def _room_metadata(ctx: JobContext) -> dict:
     """Room metadata is set by platform/src/interviews/interviews.service.ts
     at room-creation time and is the only *inbound* source of tenant/session
     identity (and, optionally, resumeContext/sessionType) this process ever
     sees — it never fetches anything from platform before/during a call,
     and never receives another session's data. (Module docstring above
     covers the one deliberate outbound exception: post-call transcript
-    delivery.)"""
+    delivery.)
+
+    ctx.room.metadata can be an empty/stale snapshot at the exact moment of
+    dispatch — LiveKit's control-plane write (platform's createRoom() call,
+    metadata included atomically) can lag slightly behind what's visible on
+    the SFU node this worker connects to. Confirmed the hard way: a direct
+    RoomService read even a few seconds later always returned the correct,
+    fully-populated metadata, while ctx.room.metadata read at connect time
+    was consistently empty ("{}"). Retry via a fresh authoritative read
+    instead of trusting the inline snapshot when it comes back empty."""
     raw = ctx.room.metadata or "{}"
-    logger.warning(  # TEMP DIAGNOSTIC — remove after debugging
-        "TEMP_DIAG raw room metadata len=%d sig_tail=%s",
-        len(raw),
-        raw[-16:] if len(raw) >= 16 else raw,
-    )
+    if raw == "{}":
+        logger.warning(
+            "Room %s: ctx.room.metadata empty on first read, retrying via RoomService",
+            ctx.room.name,
+        )
+        for attempt in range(5):
+            await asyncio.sleep(0.3 * (attempt + 1))
+            try:
+                rooms = await ctx.api.room.list_rooms(
+                    api.ListRoomsRequest(names=[ctx.room.name])
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Room %s: metadata retry attempt %d/5 errored: %s",
+                    ctx.room.name, attempt + 1, exc,
+                )
+                continue
+            if rooms.rooms and rooms.rooms[0].metadata:
+                raw = rooms.rooms[0].metadata
+                logger.info(
+                    "Room %s: metadata retry succeeded on attempt %d/5",
+                    ctx.room.name, attempt + 1,
+                )
+                break
+            logger.warning(
+                "Room %s: metadata retry attempt %d/5 still empty",
+                ctx.room.name, attempt + 1,
+            )
+        else:
+            logger.error(
+                "Room %s: metadata still empty after all retries", ctx.room.name
+            )
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
@@ -225,12 +262,6 @@ async def entrypoint(ctx: JobContext) -> None:
     await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
     settings = load_settings()
-    import hashlib as _hashlib  # TEMP DIAGNOSTIC — remove after debugging
-    logger.warning(
-        "TEMP_DIAG internal_service_secret len=%d sha256_8=%s",
-        len(settings.internal_service_secret),
-        _hashlib.sha256(settings.internal_service_secret.encode()).hexdigest()[:8],
-    )
     _reload_routing_config_if_changed(
         settings.routing_config_path, settings.llm_provider_priority, settings
     )
@@ -240,7 +271,7 @@ async def entrypoint(ctx: JobContext) -> None:
         # start of each dispatch so it never shows a mix of past sessions.
         reset_dev_metrics()
 
-    metadata = _room_metadata(ctx)
+    metadata = await _room_metadata(ctx)
 
     # Reject a room whose metadata wasn't signed by platform's createSession()
     # (see room-metadata-signing.ts, metadata_signing.py, and

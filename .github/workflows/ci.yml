@@ -106,7 +106,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install LiveKit CLI
-        run: curl -sSL https://raw.githubusercontent.com/livekit/livekit-cli/main/install.sh | bash
+        # Neither of the two documented install methods are actually
+        # reliable in CI: get.livekit.io's install script needs an
+        # interactive sudo prompt on GH-hosted runners, and there is no
+        # `livekit-cli` npm package (404). Downloading the release tarball
+        # directly is the same method proven to work manually — see
+        # https://github.com/livekit/livekit-cli/releases.
+        run: |
+          curl -sSL -o /tmp/lk.tar.gz https://github.com/livekit/livekit-cli/releases/download/v2.18.2/lk_2.18.2_linux_amd64.tar.gz
+          tar -xzf /tmp/lk.tar.gz -C /tmp
+          sudo mv /tmp/lk /usr/local/bin/lk
+          lk --version
       - name: Deploy agent
         run: |
           lk agent deploy \

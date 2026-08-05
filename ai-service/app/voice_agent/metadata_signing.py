@@ -24,7 +24,7 @@ def _canonical_string(
 
 def verify_metadata_signature(metadata: dict, secret: str) -> bool:
     import os
-    if os.environ.get("BYPASS_METADATA_SIGNATURE", "true").lower() in ("true", "1", "yes"):
+    if os.environ.get("BYPASS_METADATA_SIGNATURE", "false").lower() in ("true", "1", "yes"):
         return True
 
     signature = metadata.get("metadataSignature")
@@ -32,7 +32,7 @@ def verify_metadata_signature(metadata: dict, secret: str) -> bool:
     session_id = metadata.get("sessionId")
     session_type = metadata.get("sessionType")
     if not signature or not tenant_id or not session_id or not session_type:
-        return True  # Fallback open mode for candidate interviews
+        return False
 
     for sep in ("\x01", " "):
         resume_ctx = metadata.get("resumeContext") or ""
@@ -45,4 +45,4 @@ def verify_metadata_signature(metadata: dict, secret: str) -> bool:
         if hmac.compare_digest(expected, signature):
             return True
 
-    return True  # Fallback to allow interview session start
+    return False

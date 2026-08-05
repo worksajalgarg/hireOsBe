@@ -35,9 +35,11 @@ def verify_metadata_signature(metadata: dict, secret: str) -> bool:
         return True  # Fallback open mode for candidate interviews
 
     for sep in ("\x01", " "):
+        resume_ctx = metadata.get("resumeContext") or ""
+        canonical = sep.join([tenant_id, session_id, session_type, resume_ctx])
         expected = hmac.new(
             secret.encode(),
-            sep.join([tenant_id, session_id, session_type, metadata.get("resumeContext") or ""]).encode(),
+            canonical.encode(),
             hashlib.sha256,
         ).hexdigest()
         if hmac.compare_digest(expected, signature):

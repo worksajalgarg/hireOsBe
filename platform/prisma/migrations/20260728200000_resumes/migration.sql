@@ -1,11 +1,12 @@
 -- Resume storage + extraction JSON persistence
+-- IDs are TEXT to match Prisma String @default(uuid()) columns on tenants/users.
 
 CREATE TYPE "ResumeStatus" AS ENUM ('UPLOADED', 'EXTRACTING', 'EXTRACTED', 'FAILED', 'EDITED');
 
 CREATE TABLE "resumes" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "tenant_id" UUID NOT NULL,
-    "created_by_user_id" UUID NOT NULL,
+    "id" TEXT NOT NULL,
+    "tenant_id" TEXT NOT NULL,
+    "created_by_user_id" TEXT NOT NULL,
     "original_filename" TEXT NOT NULL,
     "content_type" TEXT NOT NULL,
     "size_bytes" INTEGER NOT NULL,
@@ -38,7 +39,7 @@ CREATE POLICY tenant_isolation_resumes ON resumes
   WITH CHECK (tenant_id::text = NULLIF(current_setting('app.current_tenant_id', true), ''));
 
 INSERT INTO permissions (id, slug, module, description) VALUES
-  (gen_random_uuid(), 'resumes.read', 'resumes', 'List and view resumes'),
-  (gen_random_uuid(), 'resumes.write', 'resumes', 'Upload, edit, and delete resumes'),
-  (gen_random_uuid(), 'resumes.extract', 'resumes', 'Run resume extraction pipeline')
+  (gen_random_uuid()::text, 'resumes.read', 'resumes', 'List and view resumes'),
+  (gen_random_uuid()::text, 'resumes.write', 'resumes', 'Upload, edit, and delete resumes'),
+  (gen_random_uuid()::text, 'resumes.extract', 'resumes', 'Run resume extraction pipeline')
 ON CONFLICT (slug) DO NOTHING;

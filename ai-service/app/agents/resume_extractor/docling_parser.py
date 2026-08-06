@@ -184,7 +184,9 @@ def _parse_sync(path: Path) -> ParsedDocument:
         ).strip()
 
         tables = _export_tables(doc)
-        json_preview = _document_json_preview(doc)
+        # Full Docling JSON is intentionally not copied into progress events. The
+        # normalized markdown and structured resume are the retained artifacts.
+        json_preview = ""
         pages = None
         num_pages = getattr(doc, "num_pages", None)
         if callable(num_pages):

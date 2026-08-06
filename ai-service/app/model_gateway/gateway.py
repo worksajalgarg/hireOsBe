@@ -6,6 +6,8 @@ roadmap's reference architecture diagram: "model providers are never called
 directly from product modules."
 """
 
+from dataclasses import dataclass
+
 from app.config import get_settings
 
 from .providers import (
@@ -18,7 +20,10 @@ from .use_case_policy import get_policy
 
 
 class ModelGateway:
-    async def run(self, *, use_case: str, system_prompt: str, user_prompt: str) -> str:
+    async def run_detailed(
+        self, *, use_case: str, system_prompt: str, user_prompt: str
+    ) -> "GatewayResult":
+        """Run a completion and retain auditable provider/fallback information."""
         get_settings.cache_clear()
         settings = get_settings()
         mode = (settings.llm_mode or "mock").strip().lower()
@@ -35,12 +40,17 @@ class ModelGateway:
             client = get_provider_client(policy.primary)
 
         try:
-            return await client.complete(
+            content = await client.complete(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
             )
+            return GatewayResult(
+                content=content,
+                provider=client.provider.value,
+                model_name=_model_name(settings, mode),
+                fallback_used=False,
+            )
         except Exception as exc:
-            # Always allow process testing when paid/free APIs fail.
             allow_fallback = settings.llm_fallback_to_mock
             if mode == "mock":
                 raise
@@ -55,11 +65,43 @@ class ModelGateway:
                         "Pipeline completed for process testing."
                     )
                 )
-                return await mock.complete(
+                content = await mock.complete(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                 )
+                return GatewayResult(
+                    content=content,
+                    provider=mock.provider.value,
+                    model_name="mock",
+                    fallback_used=True,
+                )
             raise
+
+    async def run(self, *, use_case: str, system_prompt: str, user_prompt: str) -> str:
+        result = await self.run_detailed(
+            use_case=use_case,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+        return result.content
+
+
+@dataclass(frozen=True)
+class GatewayResult:
+    content: str
+    provider: str
+    model_name: str
+    fallback_used: bool
+
+
+def _model_name(settings, mode: str) -> str:
+    if mode == "local":
+        return settings.local_llm_model
+    if mode == "gemini":
+        return settings.gemini_model
+    if mode in ("openrouter", "openai"):
+        return settings.openai_model
+    return mode
 
 
 model_gateway = ModelGateway()

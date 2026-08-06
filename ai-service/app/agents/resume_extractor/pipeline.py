@@ -7,13 +7,15 @@ import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+from app.config import get_settings
+
 from .docling_parser import DoclingParseError, ParsedDocument, parse_with_docling
 from .legacy_doc import LegacyDocError, prepare_doc_for_parse
 from .normalize import normalize_text
 from .ocr_fallback import OcrFallbackError, parse_with_ocr_fallback
 from .schemas import StageEvent, StageName, StageStatus
-from .service import extract_resume_json, validate_resume_payload
-from .validation import FileValidationError, validate_upload
+from .service import extract_resume_json
+from .validation import FileValidationError, validate_file_signature, validate_upload
 
 
 async def run_extraction_pipeline(
@@ -40,6 +42,7 @@ async def run_extraction_pipeline(
             content_type=content_type,
             size_bytes=len(file_bytes),
         )
+        validate_file_signature(extension=validated.extension, file_bytes=file_bytes)
     except FileValidationError as exc:
         yield StageEvent(
             stage=StageName.FILE_VALIDATION,
@@ -120,11 +123,8 @@ async def run_extraction_pipeline(
                 status=StageStatus.SUCCESS,
                 message="Docling parse succeeded (layout/OCR/tables; no LLM)",
                 data={
-                    "markdown_preview": parsed.markdown[:4000],
                     "markdown_length": len(parsed.markdown),
-                    "tables_preview": [t[:1500] for t in parsed.tables[:8]],
                     "table_count": len(parsed.tables),
-                    "document_json_preview": parsed.document_json_preview,
                     "source": parsed.source,
                     "meta": {**parsed.meta, **normalize_meta},
                 },
@@ -153,7 +153,6 @@ async def run_extraction_pipeline(
                     status=StageStatus.SUCCESS,
                     message=f"Fallback succeeded via {parsed.source}",
                     data={
-                        "markdown_preview": parsed.markdown[:2000],
                         "markdown_length": len(parsed.markdown),
                         "source": parsed.source,
                     },
@@ -189,13 +188,25 @@ async def run_extraction_pipeline(
                     for i, table in enumerate(parsed.tables)
                 )
             )
-        normalized = normalize_text("\n\n".join(pieces))
+        settings = get_settings()
+        normalized = normalize_text(
+            "\n\n".join(pieces), max_chars=settings.resume_source_max_chars + 1
+        )
+        if len(normalized) > settings.resume_source_max_chars:
+            yield StageEvent(
+                stage=StageName.ERROR,
+                status=StageStatus.FAILED,
+                message=(
+                    "Extracted source exceeds configured safety limit of "
+                    f"{settings.resume_source_max_chars} characters"
+                ),
+            )
+            return
         yield StageEvent(
             stage=StageName.TEXT_NORMALIZATION,
             status=StageStatus.SUCCESS,
             message="Text normalized for LLM field mapping",
             data={
-                "preview": normalized[:4000],
                 "length": len(normalized),
                 "used_ocr_fallback": used_fallback,
                 "table_count": len(parsed.tables),
@@ -217,7 +228,11 @@ async def run_extraction_pipeline(
             message="Calling LLM for structured extraction",
         )
         try:
-            raw_json, payload = await extract_resume_json(normalized)
+            extraction = await extract_resume_json(
+                normalized,
+                parse_source=parsed.source,
+                used_ocr_fallback=used_fallback,
+            )
         except Exception as exc:
             yield StageEvent(
                 stage=StageName.LLM_EXTRACTION,
@@ -235,7 +250,12 @@ async def run_extraction_pipeline(
             stage=StageName.LLM_EXTRACTION,
             status=StageStatus.SUCCESS,
             message="LLM returned structured JSON",
-            data={"raw_json": raw_json[:8000]},
+            data={
+                "provider": extraction.provider,
+                "model": extraction.model_name,
+                "chunk_count": extraction.chunk_count,
+                "fallback_used": extraction.fallback_used,
+            },
         )
 
         yield StageEvent(
@@ -243,29 +263,13 @@ async def run_extraction_pipeline(
             status=StageStatus.RUNNING,
             message="Validating against ResumeJSON schema",
         )
-        try:
-            resume = validate_resume_payload(payload)
-        except Exception as exc:
-            yield StageEvent(
-                stage=StageName.PYDANTIC_VALIDATION,
-                status=StageStatus.FAILED,
-                message=str(exc),
-                data={"raw_payload": payload},
-            )
-            yield StageEvent(
-                stage=StageName.ERROR,
-                status=StageStatus.FAILED,
-                message=f"Pydantic validation failed: {exc}",
-            )
-            return
-
         yield StageEvent(
             stage=StageName.PYDANTIC_VALIDATION,
             status=StageStatus.SUCCESS,
             message="Schema validation passed",
         )
 
-        final = resume.model_dump(mode="json")
+        final = extraction.resume.model_dump(mode="json")
         yield StageEvent(
             stage=StageName.FINAL_JSON,
             status=StageStatus.SUCCESS,

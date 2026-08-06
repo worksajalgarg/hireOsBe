@@ -31,14 +31,18 @@ class Settings(BaseSettings):
     llm_mode: str = "mock"
     gemini_model: str = "gemini-2.0-flash-lite"
     # When true, gemini/openrouter/local failures fall back to mock so the pipeline can finish
-    llm_fallback_to_mock: bool = True
+    llm_fallback_to_mock: bool = False
     # Docling: force OCR on every PDF page (slower; useful for scanned resumes)
     docling_force_full_page_ocr: bool = False
     # Local transformers instruct model (LLM_MODE=local)
     local_llm_model: str = "Qwen/Qwen2.5-3B-Instruct"
-    local_llm_max_new_tokens: int = Field(default=2048, ge=64, le=8192)
+    local_llm_max_new_tokens: int = Field(default=4096, ge=64, le=8192)
     # auto | mps | cuda | cpu
     local_llm_device: str = "auto"
+    resume_llm_chunk_chars: int = Field(default=12_000, ge=2_000, le=40_000)
+    resume_llm_max_chunks: int = Field(default=12, ge=1, le=30)
+    resume_source_max_chars: int = Field(default=120_000, ge=10_000, le=500_000)
+    ai_service_token: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

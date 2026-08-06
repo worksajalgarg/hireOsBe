@@ -31,6 +31,12 @@ type UploadedResumeFile = {
   size: number;
 };
 
+const uploadLimitMb = Number(process.env.RESUME_MAX_UPLOAD_MB ?? "10");
+const uploadLimitBytes =
+  (Number.isFinite(uploadLimitMb) && uploadLimitMb > 0 ? uploadLimitMb : 10) *
+  1024 *
+  1024;
+
 @ApiTags("resumes")
 @ApiBearerAuth()
 @Controller("resumes")
@@ -48,7 +54,7 @@ export class ResumesController {
       required: ["file"],
     },
   })
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: uploadLimitBytes } }))
   async upload(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: UploadedResumeFile | undefined,
@@ -116,17 +122,26 @@ export class ResumesController {
     form.append("file", blob, resume.originalFilename);
 
     const abort = new AbortController();
-    req.on("close", () => abort.abort());
+    res.on("close", () => {
+      if (!res.writableEnded) abort.abort();
+    });
 
     let upstream: globalThis.Response;
     try {
+      const internalToken = process.env.AI_SERVICE_TOKEN;
       upstream = await fetch(`${aiBase}/resume-extractor/extract`, {
         method: "POST",
         body: form,
         signal: abort.signal,
+        headers: internalToken ? { "x-ai-service-token": internalToken } : undefined,
       });
     } catch (err) {
       if ((err as Error).name === "AbortError") {
+        await this.resumesService.persistExtractionFailure(
+          user.tenantId,
+          id,
+          "Extraction cancelled before the AI service responded",
+        );
         res.end();
         return;
       }
@@ -230,7 +245,13 @@ export class ResumesController {
         );
       }
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
+      if ((err as Error).name === "AbortError") {
+        await this.resumesService.persistExtractionFailure(
+          user.tenantId,
+          id,
+          "Extraction cancelled by the client",
+        );
+      } else {
         await this.resumesService.persistExtractionFailure(
           user.tenantId,
           id,

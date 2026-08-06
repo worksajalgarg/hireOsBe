@@ -5,7 +5,6 @@ import {
   Post,
   Req,
   Res,
-  UnauthorizedException,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import type { Request, Response } from "express";
@@ -21,7 +20,6 @@ import {
 } from "./dto";
 import { REFRESH_COOKIE_NAME } from "./auth.types";
 import { CurrentUser } from "./auth.decorators";
-import { TenantScopedRequest } from "../common/tenant-context.middleware";
 
 @ApiTags("auth")
 @Controller("auth")
@@ -55,8 +53,8 @@ export class AuthController {
       userAgent: req.headers["user-agent"],
       ipAddress: req.ip,
     });
-    this.setRefreshCookie(res, result.refreshToken);
-    const { refreshToken: _, ...body } = result;
+    const { refreshToken, ...body } = result;
+    this.setRefreshCookie(res, refreshToken);
     return body;
   }
 
@@ -69,8 +67,8 @@ export class AuthController {
       userAgent: req.headers["user-agent"],
       ipAddress: req.ip,
     });
-    this.setRefreshCookie(res, result.refreshToken);
-    const { refreshToken: _, ...body } = result;
+    const { refreshToken, ...body } = result;
+    this.setRefreshCookie(res, refreshToken);
     return body;
   }
 
@@ -97,8 +95,8 @@ export class AuthController {
       userAgent: req.headers["user-agent"],
       ipAddress: req.ip,
     });
-    this.setRefreshCookie(res, result.refreshToken);
-    const { refreshToken: _, ...body } = result;
+    const { refreshToken, ...body } = result;
+    this.setRefreshCookie(res, refreshToken);
     return body;
   }
 

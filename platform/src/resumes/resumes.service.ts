@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -58,9 +59,24 @@ export class ResumesService {
   }
 
   private extension(filename: string): string {
-    const base = filename.split("/").pop() ?? filename;
+    const base = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
     const i = base.lastIndexOf(".");
     return i >= 0 ? base.slice(i).toLowerCase() : "";
+  }
+
+  private sanitizeFilename(filename: string): string {
+    const base = filename.replace(/\\/g, "/").split("/").pop()?.trim() ?? "";
+    const safe = [...base]
+      .filter((character) => {
+        const code = character.charCodeAt(0);
+        return code >= 32 && code !== 127;
+      })
+      .join("")
+      .slice(0, 240);
+    if (!safe || safe === "." || safe === "..") {
+      throw new BadRequestException("Filename is invalid");
+    }
+    return safe;
   }
 
   private validateUpload(filename: string, contentType: string, size: number) {
@@ -80,7 +96,28 @@ export class ResumesService {
     }
     const mime = contentType.split(";")[0].trim().toLowerCase();
     if (mime && !ALLOWED_MIME.has(mime)) {
-      // extension already validated
+      throw new BadRequestException(`Unsupported content type '${mime}'`);
+    }
+  }
+
+  private validateWorkingJsonShape(workingJson: Record<string, unknown>) {
+    if (workingJson.schema_version !== "2.0") {
+      throw new BadRequestException("workingJson.schema_version must be '2.0'");
+    }
+    if (!workingJson.contact || typeof workingJson.contact !== "object") {
+      throw new BadRequestException("workingJson.contact must be an object");
+    }
+    for (const field of [
+      "experience",
+      "education",
+      "skills",
+      "projects",
+      "certifications",
+      "languages",
+    ]) {
+      if (!Array.isArray(workingJson[field])) {
+        throw new BadRequestException(`workingJson.${field} must be an array`);
+      }
     }
   }
 
@@ -91,14 +128,13 @@ export class ResumesService {
     contentType: string;
     buffer: Buffer;
   }) {
-    this.validateUpload(params.filename, params.contentType, params.buffer.length);
-    await this.prisma.setTenantContext(params.tenantId);
-
+    const filename = this.sanitizeFilename(params.filename);
+    this.validateUpload(filename, params.contentType, params.buffer.length);
     const id = randomUUID();
     const storageKey = this.storage.buildResumeKey(
       params.tenantId,
       id,
-      params.filename,
+      filename,
     );
 
     await this.storage.putObject({
@@ -107,36 +143,44 @@ export class ResumesService {
       contentType: params.contentType || "application/octet-stream",
     });
 
-    const resume = await this.prisma.resume.create({
-      data: {
-        id,
-        tenantId: params.tenantId,
-        createdByUserId: params.userId,
-        originalFilename: params.filename,
-        contentType: params.contentType || "application/octet-stream",
-        sizeBytes: params.buffer.length,
-        storageKey,
-        status: ResumeStatus.UPLOADED,
-      },
-    });
+    let resume;
+    try {
+      resume = await this.prisma.withTenant(params.tenantId, (tx) =>
+        tx.resume.create({
+          data: {
+            id,
+            tenantId: params.tenantId,
+            createdByUserId: params.userId,
+            originalFilename: filename,
+            contentType: params.contentType || "application/octet-stream",
+            sizeBytes: params.buffer.length,
+            storageKey,
+            status: ResumeStatus.UPLOADED,
+          },
+        }),
+      );
+    } catch (error) {
+      await this.storage.deleteObject(storageKey).catch(() => undefined);
+      throw error;
+    }
 
     return this.toListItem(resume);
   }
 
   async list(tenantId: string) {
-    await this.prisma.setTenantContext(tenantId);
-    const rows = await this.prisma.resume.findMany({
-      where: { tenantId },
-      orderBy: { createdAt: "desc" },
-    });
+    const rows = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.resume.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
     return rows.map((r) => this.toListItem(r));
   }
 
   async get(tenantId: string, id: string) {
-    await this.prisma.setTenantContext(tenantId);
-    const resume = await this.prisma.resume.findFirst({
-      where: { id, tenantId },
-    });
+    const resume = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.resume.findFirst({ where: { id, tenantId } }),
+    );
     if (!resume) throw new NotFoundException(`Resume ${id} not found`);
     return this.toDetail(resume);
   }
@@ -146,55 +190,62 @@ export class ResumesService {
     id: string,
     workingJson: Record<string, unknown>,
   ) {
-    await this.prisma.setTenantContext(tenantId);
-    const existing = await this.prisma.resume.findFirst({
-      where: { id, tenantId },
-    });
-    if (!existing) throw new NotFoundException(`Resume ${id} not found`);
-
-    const resume = await this.prisma.resume.update({
-      where: { id },
-      data: {
-        workingJson: workingJson as Prisma.InputJsonValue,
-        status: ResumeStatus.EDITED,
-        errorMessage: null,
-      },
+    this.validateWorkingJsonShape(workingJson);
+    const resume = await this.prisma.withTenant(tenantId, async (tx) => {
+      const existing = await tx.resume.findFirst({ where: { id, tenantId } });
+      if (!existing) throw new NotFoundException(`Resume ${id} not found`);
+      if (existing.status === ResumeStatus.EXTRACTING) {
+        throw new ConflictException("Cannot edit JSON while extraction is running");
+      }
+      return tx.resume.update({
+        where: { id },
+        data: {
+          workingJson: workingJson as Prisma.InputJsonValue,
+          status: ResumeStatus.EDITED,
+          errorMessage: null,
+        },
+      });
     });
     return this.toDetail(resume);
   }
 
   async delete(tenantId: string, id: string) {
-    await this.prisma.setTenantContext(tenantId);
-    const existing = await this.prisma.resume.findFirst({
-      where: { id, tenantId },
+    const existing = await this.prisma.withTenant(tenantId, async (tx) => {
+      const row = await tx.resume.findFirst({ where: { id, tenantId } });
+      if (!row) throw new NotFoundException(`Resume ${id} not found`);
+      if (row.status === ResumeStatus.EXTRACTING) {
+        throw new ConflictException("Cannot delete a resume while extraction is running");
+      }
+      await tx.resume.delete({ where: { id } });
+      return row;
     });
-    if (!existing) throw new NotFoundException(`Resume ${id} not found`);
-
-    try {
-      await this.storage.deleteObject(existing.storageKey);
-    } catch {
-      // continue DB delete even if object already gone
-    }
-    await this.prisma.resume.delete({ where: { id } });
+    await this.storage.deleteObject(existing.storageKey).catch(() => undefined);
     return { ok: true };
   }
 
   async markExtracting(tenantId: string, id: string) {
-    await this.prisma.setTenantContext(tenantId);
-    const existing = await this.prisma.resume.findFirst({
-      where: { id, tenantId },
-    });
-    if (!existing) throw new NotFoundException(`Resume ${id} not found`);
-    return this.prisma.resume.update({
-      where: { id },
-      data: { status: ResumeStatus.EXTRACTING, errorMessage: null },
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const existing = await tx.resume.findFirst({ where: { id, tenantId } });
+      if (!existing) throw new NotFoundException(`Resume ${id} not found`);
+      if (existing.status === ResumeStatus.EXTRACTING) {
+        throw new ConflictException("Resume extraction is already running");
+      }
+      return tx.resume.update({
+        where: { id },
+        data: { status: ResumeStatus.EXTRACTING, errorMessage: null },
+      });
     });
   }
 
   async getFileBuffer(tenantId: string, id: string) {
     const resume = await this.markExtracting(tenantId, id);
-    const buffer = await this.storage.getObjectBuffer(resume.storageKey);
-    return { resume, buffer };
+    try {
+      const buffer = await this.storage.getObjectBuffer(resume.storageKey);
+      return { resume, buffer };
+    } catch (error) {
+      await this.persistExtractionFailure(tenantId, id, (error as Error).message);
+      throw error;
+    }
   }
 
   async persistExtractionSuccess(
@@ -205,27 +256,35 @@ export class ResumesService {
       parseSource?: string | null;
     },
   ) {
-    await this.prisma.setTenantContext(tenantId);
-    return this.prisma.resume.update({
-      where: { id },
-      data: {
-        extractedJson: payload.resumeJson as Prisma.InputJsonValue,
-        workingJson: payload.resumeJson as Prisma.InputJsonValue,
-        parseSource: payload.parseSource ?? null,
-        status: ResumeStatus.EXTRACTED,
-        errorMessage: null,
-      },
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const existing = await tx.resume.findFirst({ where: { id, tenantId } });
+      if (!existing) throw new NotFoundException(`Resume ${id} not found`);
+      return tx.resume.update({
+        where: { id },
+        data: {
+          extractedJson: payload.resumeJson as Prisma.InputJsonValue,
+          // Preserve recruiter edits when a resume is re-extracted.
+          workingJson:
+            existing.workingJson ?? (payload.resumeJson as Prisma.InputJsonValue),
+          parseSource: payload.parseSource ?? null,
+          status: existing.workingJson ? ResumeStatus.EDITED : ResumeStatus.EXTRACTED,
+          errorMessage: null,
+        },
+      });
     });
   }
 
   async persistExtractionFailure(tenantId: string, id: string, message: string) {
-    await this.prisma.setTenantContext(tenantId);
-    return this.prisma.resume.update({
-      where: { id },
-      data: {
-        status: ResumeStatus.FAILED,
-        errorMessage: message.slice(0, 2000),
-      },
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const existing = await tx.resume.findFirst({ where: { id, tenantId } });
+      if (!existing) throw new NotFoundException(`Resume ${id} not found`);
+      return tx.resume.update({
+        where: { id },
+        data: {
+          status: existing.workingJson ? ResumeStatus.EDITED : ResumeStatus.FAILED,
+          errorMessage: message.slice(0, 2000),
+        },
+      });
     });
   }
 
@@ -280,7 +339,6 @@ export class ResumesService {
       ...this.toListItem(resume),
       tenantId: resume.tenantId,
       createdByUserId: resume.createdByUserId,
-      storageKey: resume.storageKey,
       extractedJson: resume.extractedJson,
       workingJson: resume.workingJson,
       parseSource: resume.parseSource,

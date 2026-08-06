@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,21 +9,28 @@ from .ssl_certs import configure_huggingface_offline, configure_ssl_certs
 configure_ssl_certs()
 configure_huggingface_offline()
 
-from .agents import (
+from .agents import (  # noqa: E402
     evaluation_engine,
     interview_orchestrator,
     matching_engine,
     resume_intelligence,
     role_intelligence,
 )
-from .agents.resume_extractor import router as resume_extractor_router
-from .config import get_settings
+from .agents.resume_extractor import router as resume_extractor_router  # noqa: E402
+from .config import get_settings  # noqa: E402
 
 # Reload settings after SSL/env bootstrap (clears any stale cache).
 get_settings.cache_clear()
 settings = get_settings()
 
-app = FastAPI(title="Enterprise AI Hiring Platform — AI Service")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    get_settings.cache_clear()
+    yield
+
+
+app = FastAPI(title="Enterprise AI Hiring Platform — AI Service", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,8 +51,3 @@ app.include_router(evaluation_engine.router)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.on_event("startup")
-async def _startup_clear_settings_cache() -> None:
-    get_settings.cache_clear()

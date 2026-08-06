@@ -93,6 +93,7 @@ class MockProviderClient(ProviderClient):
                 break
 
         payload = {
+            "schema_version": "2.0",
             "contact": {
                 "full_name": name,
                 "email": email_match.group(0) if email_match else None,
@@ -100,13 +101,24 @@ class MockProviderClient(ProviderClient):
                 "location": None,
                 "linkedin": None,
                 "website": None,
+                "github": None,
+                "other_links": [],
             },
+            "headline": None,
             "summary": summary,
             "experience": [],
             "education": [],
             "skills": skills,
+            "skill_groups": {},
+            "projects": [],
             "certifications": [],
             "languages": [],
+            "awards": [],
+            "publications": [],
+            "volunteering": [],
+            "interests": [],
+            "additional_sections": [],
+            "verification_topics": [],
         }
         return json.dumps(payload)
 

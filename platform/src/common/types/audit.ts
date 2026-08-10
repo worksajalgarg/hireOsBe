@@ -11,7 +11,16 @@ export type AuditEventType =
   | "role.created"
   | "role_context.approved"
   | "candidate.disposition"
-  | "model_version.promoted";
+  | "model_version.promoted"
+  | "interview.session.created"
+  | "interview.session.candidate_joined"
+  | "interview.session.ended"
+  | "interview.recording.started"
+  | "interview.recording.completed"
+  | "interview.transcript.ingested"
+  | "prompt.template.created"
+  | "prompt.template.updated"
+  | "prompt.template.deleted";
 
 export interface AuditEvent {
   id: string;

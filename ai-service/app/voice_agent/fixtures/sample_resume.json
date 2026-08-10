@@ -1,0 +1,46 @@
+{
+  "name": "Ananya Rao",
+  "title": "Senior Software Engineer",
+  "yearsOfExperience": 6,
+  "summary": "Backend-leaning full-stack engineer with 6 years building distributed systems and APIs, most recently focused on payments infrastructure.",
+  "skills": [
+    "TypeScript",
+    "Node.js",
+    "NestJS",
+    "PostgreSQL",
+    "Redis",
+    "Kafka",
+    "Docker",
+    "AWS (ECS, RDS, SQS)",
+    "React"
+  ],
+  "experience": [
+    {
+      "company": "Finlync Payments",
+      "title": "Senior Software Engineer",
+      "duration": "2022 - Present",
+      "achievements": [
+        "Led migration of the payment-reconciliation service from a monolith to an event-driven architecture using Kafka, cutting reconciliation latency from 6 hours to 12 minutes.",
+        "Designed a idempotency-key based retry system for payment webhooks that eliminated duplicate-charge incidents.",
+        "Mentored 3 junior engineers and ran the team's on-call rotation for 18 months."
+      ]
+    },
+    {
+      "company": "Cartly",
+      "title": "Software Engineer",
+      "duration": "2019 - 2022",
+      "achievements": [
+        "Built the checkout service (Node.js/PostgreSQL) handling ~50k orders/day.",
+        "Introduced Redis-based rate limiting on the public API after a scraping incident.",
+        "Wrote the team's first integration-test suite, raising deploy confidence and cutting rollback rate by half."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "B.Tech, Computer Science",
+      "institution": "VIT Vellore",
+      "year": 2019
+    }
+  ]
+}

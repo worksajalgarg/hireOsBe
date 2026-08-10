@@ -1,0 +1,30 @@
+# STT/TTS/LLM model selection for the LIVEKIT_INFERENCE voice provider path —
+# see app/voice_agent/voice_tuning_config.py for the loader/validation and
+# session.py's _build_stt_tts() for how STT/TTS are used, and
+# model_gateway/gateway.py's set_livekit_inference_mode() for how the llm:
+# section is used. Not part of model_routing.yaml on purpose: that file is
+# scoped to *LLM* routing chains on the DIRECT path (model_gateway's
+# boundary); STT/TTS/LLM here are all billed and authenticated through
+# LiveKit Cloud (LIVEKIT_API_KEY/SECRET) — no separate vendor keys needed.
+# Only applies when VOICE_PROVIDER=livekit_inference; the DIRECT (raw
+# Deepgram/ElevenLabs/Groq/Gemini keys) path uses model_routing.yaml chains
+# and doesn't use any model strings defined here.
+#
+# fallback_models: 0 or more secondary models tried in order if the primary
+# fails. For STT/TTS this wraps via stt.FallbackAdapter/tts.FallbackAdapter;
+# for LLM this builds extra livekit_inference chain tiers in gateway.py.
+
+stt:
+  model: deepgram/nova-3
+  fallback_models:
+    - deepgram/nova-2
+
+tts:
+  model: cartesia/sonic
+  fallback_models:
+    - elevenlabs/eleven_multilingual_v2
+
+llm:
+  model: openai/gpt-4o-mini
+  fallback_models:
+    - google/gemini-1.5-flash

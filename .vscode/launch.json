@@ -22,6 +22,19 @@
       "args": ["app.main:app", "--reload", "--port", "8000"],
       "cwd": "${workspaceFolder}/ai-service",
       "python": "${workspaceFolder}/ai-service/.venv/bin/python",
+      "envFile": "${workspaceFolder}/ai-service/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Voice Agent Worker",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "app.voice_agent.worker",
+      "args": ["start"],
+      "cwd": "${workspaceFolder}/ai-service",
+      "python": "${workspaceFolder}/ai-service/.venv/bin/python",
+      "envFile": "${workspaceFolder}/ai-service/.env",
       "console": "integratedTerminal",
       "justMyCode": true
     }
@@ -30,7 +43,7 @@
     {
       "name": "Launch All (Backend)",
       "preLaunchTask": "infra: up",
-      "configurations": ["Platform (NestJS)", "AI Service (FastAPI)"],
+      "configurations": ["Platform (NestJS)", "AI Service (FastAPI)", "Voice Agent Worker"],
       "stopAll": true
     }
   ]

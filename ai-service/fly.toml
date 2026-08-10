@@ -1,0 +1,36 @@
+# fly.toml — HireOS AI Voice Agent Worker
+# Deployed on Fly.io free tier (shared-cpu-1x, 256MB RAM)
+app = "hire-os-ai"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "production"
+  PORT = "8080"
+
+# The LiveKit worker does NOT serve HTTP — but Fly.io requires a port binding.
+# We declare the port to satisfy Fly, but auto_stop_machines is disabled so
+# the worker stays alive continuously (it must maintain a persistent WS connection
+# to LiveKit Cloud).
+[[services]]
+  protocol = "tcp"
+  internal_port = 8080
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 8080
+    handlers = ["http"]
+
+[checks]
+  [checks.alive]
+    grace_period = "30s"
+    interval = "15s"
+    method = "get"
+    path = "/health"
+    port = 8080
+    timeout = "5s"
+    type = "http"

@@ -77,3 +77,50 @@ jobs:
       - name: pip-audit (ai-service)
         working-directory: ai-service
         run: pip-audit -r requirements.txt
+
+  deploy-platform:
+    name: Deploy platform (Vercel)
+    needs: platform
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Not scoped to platform/ via `defaults.run.working-directory` — the
+    # Vercel project's own dashboard setting (Root Directory = "platform")
+    # already resolves that, relative to repo root. Running this step from
+    # inside platform/ too would double it to platform/platform (confirmed
+    # the hard way: "provided path .../platform/platform does not exist").
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PLATFORM_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx vercel --prod --token "${{ secrets.VERCEL_TOKEN }}" --yes
+
+  deploy-ai-service:
+    name: Deploy AI service (LiveKit Cloud)
+    needs: ai-service
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-service
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install LiveKit CLI
+        # Neither of the two documented install methods are actually
+        # reliable in CI: get.livekit.io's install script needs an
+        # interactive sudo prompt on GH-hosted runners, and there is no
+        # `livekit-cli` npm package (404). Downloading the release tarball
+        # directly is the same method proven to work manually — see
+        # https://github.com/livekit/livekit-cli/releases.
+        run: |
+          curl -sSL -o /tmp/lk.tar.gz https://github.com/livekit/livekit-cli/releases/download/v2.18.2/lk_2.18.2_linux_amd64.tar.gz
+          tar -xzf /tmp/lk.tar.gz -C /tmp
+          sudo mv /tmp/lk /usr/local/bin/lk
+          lk --version
+      - name: Deploy agent
+        run: |
+          lk agent deploy \
+            --url "${{ secrets.LIVEKIT_URL }}" \
+            --api-key "${{ secrets.LIVEKIT_API_KEY }}" \
+            --api-secret "${{ secrets.LIVEKIT_API_SECRET }}" \
+            --yes

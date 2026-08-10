@@ -1,13 +1,22 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "@prisma/client";
+import pg from "pg";
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
-    // Prisma 7: PrismaClient requires an explicit driver adapter — the
-    // connection URL is no longer read from schema.prisma at runtime.
-    super({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
+    const rawUrl = process.env.DATABASE_URL || "";
+    const cleanUrl = rawUrl
+      .replace(/&?channel_binding=[^&]*/g, "")
+      .replace(/&?sslmode=[^&]*/g, "")
+      .replace(/\?$/, "");
+
+    const pool = new pg.Pool({
+      connectionString: cleanUrl,
+      ssl: { rejectUnauthorized: false },
+    });
+    super({ adapter: new PrismaPg(pool) });
   }
 
   async onModuleInit() {

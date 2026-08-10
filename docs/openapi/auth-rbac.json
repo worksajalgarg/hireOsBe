@@ -830,6 +830,259 @@
           "Integrations"
         ]
       }
+    },
+    "/api/v1/interviews": {
+      "post": {
+        "operationId": "InterviewsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInterviewSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/join": {
+      "post": {
+        "operationId": "InterviewsController_join",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinInterviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/{id}/token": {
+      "post": {
+        "operationId": "InterviewsController_recruiterToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/interviews/{id}/end": {
+      "post": {
+        "operationId": "InterviewsController_end",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "interviews"
+        ]
+      }
+    },
+    "/api/v1/internal/interview-sessions/{id}/transcript": {
+      "post": {
+        "operationId": "InternalInterviewsController_ingestTranscript",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestTranscriptDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "InternalInterviews"
+        ]
+      }
+    },
+    "/api/v1/prompts": {
+      "get": {
+        "operationId": "PromptsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      },
+      "post": {
+        "operationId": "PromptsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePromptTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      }
+    },
+    "/api/v1/prompts/{id}": {
+      "get": {
+        "operationId": "PromptsController_getOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      },
+      "patch": {
+        "operationId": "PromptsController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePromptTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      },
+      "delete": {
+        "operationId": "PromptsController_delete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Prompts"
+        ]
+      }
     }
   },
   "info": {
@@ -910,6 +1163,26 @@
         "properties": {}
       },
       "UpdateResumeWorkingJsonDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateInterviewSessionDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "JoinInterviewDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "IngestTranscriptDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreatePromptTemplateDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdatePromptTemplateDto": {
         "type": "object",
         "properties": {}
       }

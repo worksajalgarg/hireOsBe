@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   RESUMES_READ: "resumes.read",
   RESUMES_WRITE: "resumes.write",
   RESUMES_EXTRACT: "resumes.extract",
+  INTERVIEWS_MANAGE: "interviews.manage",
 } as const;
 
 export type PermissionSlug = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -62,6 +63,10 @@ export const PERMISSION_META: Record<
     module: "resumes",
     description: "Run resume extraction pipeline",
   },
+  [PERMISSIONS.INTERVIEWS_MANAGE]: {
+    module: "interviews",
+    description: "Create and join AI voice interview sessions",
+  },
 };
 
 export const SYSTEM_ROLE_NAMES = {
@@ -83,6 +88,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.RESUMES_READ,
     PERMISSIONS.RESUMES_WRITE,
     PERMISSIONS.RESUMES_EXTRACT,
+    PERMISSIONS.INTERVIEWS_MANAGE,
   ],
   [SYSTEM_ROLE_NAMES.HiringManager]: [
     PERMISSIONS.WORKSPACE_SETTINGS_READ,
@@ -92,6 +98,7 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.PROFILE_WRITE,
     PERMISSIONS.RESUMES_READ,
     PERMISSIONS.RESUMES_EXTRACT,
+    PERMISSIONS.INTERVIEWS_MANAGE,
   ],
   [SYSTEM_ROLE_NAMES.Auditor]: [
     PERMISSIONS.WORKSPACE_SETTINGS_READ,

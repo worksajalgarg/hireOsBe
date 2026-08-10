@@ -156,6 +156,7 @@ function camelizeExtraction(raw: JsonRecord): Record<string, unknown> {
       unparsedSections: (raw.unparsed_sections ?? []).map((u: JsonRecord) => ({
         sectionTitle: u.section_title,
         rawText: u.raw_text,
+        hasContent: u.has_content,
       })),
     };
   }

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.agents.resume_intelligence import (
     _backfill_thin_unparsed_sections,
     _drop_unparsed_sections_captured_elsewhere,
+    _has_substantial_content,
 )
 from app.agents.resume_intelligence_schema import (
     EvidencedClaim,
@@ -153,8 +154,49 @@ def test_happy_path_returns_structured_extraction(monkeypatch, synthetic_pdf_byt
     assert body["languages"][0]["claim"] == "English (fluent)"
     assert body["unparsed_sections"][0]["section_title"] == "Hobbies"
     assert body["unparsed_sections"][0]["raw_text"] == "Chess, hiking"
+    # "Chess, hiking" (13 chars) isn't past the thinness margin over
+    # "Hobbies" (7 chars) — genuinely thin by this heuristic, so the amber
+    # "could not confidently parse" warning is earned here.
+    assert body["unparsed_sections"][0]["has_content"] is False
     assert body["source_filename"] == "resume.pdf"
     assert body["model_version"] == "model_gateway:resume_parsing"
+
+
+def test_substantial_unparsed_section_is_flagged_has_content(
+    monkeypatch, synthetic_pdf_bytes: bytes
+) -> None:
+    """Reproduces the real case that motivated has_content: a resume's
+    "Volunteering"/"Coursework"-shaped section with substantial, cleanly
+    extracted text — not thin, not garbled — should not get the same
+    "could not confidently parse" alarm as a genuinely thin stub."""
+    fake_output = ResumeExtractionLLMOutput(
+        candidate_name="Test Candidate",
+        unparsed_sections=[
+            UnparsedSection(
+                section_title="Volunteering",
+                raw_text=(
+                    "CodeChef College Chapter (IIIT Sonepat) Executive Team Member, "
+                    "Problem Setter and Tester in Coding Competitions"
+                ),
+            )
+        ],
+    )
+
+    async def fake_run_structured(**kwargs):
+        return fake_output
+
+    monkeypatch.setattr(
+        "app.agents.resume_intelligence.model_gateway.run_structured", fake_run_structured
+    )
+
+    response = client.post(
+        "/resume-intelligence/parse",
+        files={"file": ("resume.pdf", synthetic_pdf_bytes, "application/pdf")},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["unparsed_sections"][0]["section_title"] == "Volunteering"
+    assert body["unparsed_sections"][0]["has_content"] is True
 
 
 def test_backfill_recovers_real_text_when_model_echoes_the_heading() -> None:
@@ -251,3 +293,42 @@ def test_drop_unparsed_sections_captured_elsewhere_keeps_genuinely_unmatched_sec
 
     assert len(result) == 1
     assert result[0].section_title == "Hobbies"
+
+
+def test_has_substantial_content_true_for_the_volunteering_coursework_case() -> None:
+    """The real case that motivated this: substantial, cleanly extracted
+    text under a section type the schema doesn't model — should read as
+    "has content," not as a thin/ambiguous stub."""
+    section = UnparsedSection(
+        section_title="Coursework",
+        raw_text=(
+            "- Data Structures and Algorithms (DSA)\n- Operating Systems (OS)\n"
+            "- Object Oriented Programming (OOPS)\n- Database Management Systems (DBMS)"
+        ),
+    )
+    assert _has_substantial_content(section) is True
+
+
+def test_has_substantial_content_false_for_a_bare_heading_echo() -> None:
+    """The original bug's exact shape: raw_text is just the heading
+    repeated back, no real content at all."""
+    section = UnparsedSection(section_title="Courses", raw_text="Courses")
+    assert _has_substantial_content(section) is False
+
+
+def test_has_substantial_content_false_for_empty_raw_text() -> None:
+    section = UnparsedSection(section_title="Hobbies", raw_text="")
+    assert _has_substantial_content(section) is False
+
+
+def test_has_substantial_content_is_section_name_blind() -> None:
+    """Never special-cases a section title — the same length-based
+    predicate applies regardless of what an unmodeled section is called,
+    which is the whole point (works for any resume, not just the two
+    section names seen in practice so far)."""
+    thin = UnparsedSection(section_title="Patents", raw_text="Patents")
+    substantial = UnparsedSection(
+        section_title="Patents", raw_text="US Patent 12345678: A novel method for widget assembly."
+    )
+    assert _has_substantial_content(thin) is False
+    assert _has_substantial_content(substantial) is True

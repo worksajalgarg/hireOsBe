@@ -27,6 +27,11 @@ export interface WorkHistoryEntry {
 export interface UnparsedSection {
   sectionTitle: string;
   rawText: string;
+  /** Distinguishes substantial, cleanly-extracted content the schema just
+   * doesn't have a field for (true — no alarm warranted) from genuinely
+   * thin/ambiguous content (false) — see ai-service's
+   * resume_intelligence.py's _has_substantial_content. */
+  hasContent: boolean;
 }
 
 /** Mirrors ai-service/app/agents/resume_intelligence_schema.py's

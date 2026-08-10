@@ -110,6 +110,15 @@ class UnparsedSection(BaseModel):
 
     section_title: str
     raw_text: str
+    # Additive, default True so the LLM's own output (which never sets
+    # this) and every existing call site keep working unmodified — the
+    # real value is computed and overwritten in resume_intelligence.py's
+    # route handler via _has_substantial_content, after backfill/dedup
+    # have run, so it reflects the final raw_text. Distinguishes "real,
+    # substantial content that just doesn't fit a known field" (True, no
+    # UI alarm warranted) from "genuinely thin/ambiguous" (False, the
+    # frontend's "Could not confidently parse" warning is earned).
+    has_content: bool = True
 
 
 class ResumeExtractionLLMOutput(BaseModel):

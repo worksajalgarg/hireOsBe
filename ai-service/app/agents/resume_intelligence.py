@@ -124,6 +124,23 @@ _THIN_RAW_TEXT_MARGIN = 10
 _BACKFILL_WINDOW_CHARS = 800
 
 
+def _has_substantial_content(section: UnparsedSection) -> bool:
+    """Shared by _backfill_thin_unparsed_sections' "is this worth trying to
+    recover" check and the final has_content classification in
+    parse_resume — one definition of "thin", not two that could drift
+    apart. Section-name-blind on purpose: it never looks at what the
+    heading is called (Volunteering, Coursework, anything else a resume
+    might use), only whether the text under it is substantial — the
+    generic property that holds for any resume, unlike trying to
+    special-case every section name a schema hasn't modeled yet."""
+    raw, title = section.raw_text.strip(), section.section_title.strip()
+    return (
+        bool(raw)
+        and raw.lower() != title.lower()
+        and len(raw) > len(title) + _THIN_RAW_TEXT_MARGIN
+    )
+
+
 def _backfill_thin_unparsed_sections(
     sections: list[UnparsedSection], source_text: str
 ) -> list[UnparsedSection]:
@@ -158,8 +175,7 @@ def _backfill_thin_unparsed_sections(
     backfilled: list[UnparsedSection] = []
     for section in sections:
         title = section.section_title.strip()
-        raw = section.raw_text.strip()
-        if len(raw) > len(title) + _THIN_RAW_TEXT_MARGIN:
+        if _has_substantial_content(section):
             backfilled.append(section)
             continue
 
@@ -175,12 +191,12 @@ def _backfill_thin_unparsed_sections(
         body = (window[:break_idx] if break_idx > 20 else window).strip()
 
         looks_like_another_heading = not body or body.lower() in known_titles
-        still_too_thin = len(body) <= len(title) + _THIN_RAW_TEXT_MARGIN
-        if looks_like_another_heading or still_too_thin:
+        candidate = UnparsedSection(section_title=section.section_title, raw_text=body)
+        if looks_like_another_heading or not _has_substantial_content(candidate):
             backfilled.append(section)  # would just substitute one label for another
             continue
 
-        backfilled.append(UnparsedSection(section_title=section.section_title, raw_text=body))
+        backfilled.append(candidate)
     return backfilled
 
 
@@ -286,6 +302,18 @@ async def parse_resume(file: UploadFile = File(...)) -> ResumeExtractionResponse
     llm_output.unparsed_sections = _drop_unparsed_sections_captured_elsewhere(
         llm_output.unparsed_sections, llm_output
     )
+    # Runs last so it reflects the final raw_text (post-backfill), not the
+    # model's original (possibly thin) output — see UnparsedSection's
+    # has_content docstring and the frontend's candidate detail page for
+    # how this drives the calm-vs-amber display split.
+    llm_output.unparsed_sections = [
+        UnparsedSection(
+            section_title=s.section_title,
+            raw_text=s.raw_text,
+            has_content=_has_substantial_content(s),
+        )
+        for s in llm_output.unparsed_sections
+    ]
 
     if _is_suspiciously_empty(llm_output, parsed.char_count):
         logger.warning(

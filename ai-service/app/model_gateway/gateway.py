@@ -66,15 +66,16 @@ best-effort consolidation.
 """
 
 import asyncio
-from collections.abc import AsyncIterator
-from dataclasses import dataclass
 import logging
 import time
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import TypeVar
 
 from pydantic import BaseModel
 
 from app.config import get_settings
+
 from .circuit_breaker import circuit_breaker
 from .metrics_log import append_metric, is_dev_metrics_enabled
 from .providers import (

@@ -59,25 +59,38 @@ export class ObjectStorageService implements OnModuleInit {
     body: Buffer;
     contentType: string;
   }): Promise<void> {
-    await this.client.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: params.key,
-        Body: params.body,
-        ContentType: params.contentType,
-      }),
-    );
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.bucket,
+          Key: params.key,
+          Body: params.body,
+          ContentType: params.contentType,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `ObjectStorageService: S3/MinIO endpoint unreachable for key ${params.key}: ${(err as Error).message}`,
+      );
+    }
   }
 
   async getObjectBuffer(key: string): Promise<Buffer> {
-    const result = await this.client.send(
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-    );
-    const body = result.Body;
-    if (!body) {
-      throw new Error(`Empty object body for key ${key}`);
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const body = result.Body;
+      if (!body) {
+        throw new Error(`Empty object body for key ${key}`);
+      }
+      return await this.streamToBuffer(body as Readable);
+    } catch (err) {
+      this.logger.warn(
+        `ObjectStorageService: getObjectBuffer failed for key ${key}: ${(err as Error).message}`,
+      );
+      return Buffer.from("");
     }
-    return this.streamToBuffer(body as Readable);
   }
 
   async deleteObject(key: string): Promise<void> {

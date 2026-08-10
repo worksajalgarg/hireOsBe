@@ -17,6 +17,12 @@ import re
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..model_gateway.gateway import model_gateway
+from .document_intake_limits import (
+    MAX_FILE_BYTES,
+    MIN_CHARS_FOR_EMPTY_CHECK,
+    MIN_EXTRACTABLE_CHARS,
+    PARSE_TIMEOUT_S,
+)
 from .parsing import ParsedDocument, ParsingError, UnsupportedFileTypeError, parse_document
 from .resume_intelligence_schema import (
     ResumeExtractionLLMOutput,
@@ -29,18 +35,6 @@ logger = logging.getLogger("resume_intelligence")
 router = APIRouter(prefix="/resume-intelligence", tags=["resume-intelligence"])
 
 USE_CASE = "resume_parsing"
-
-_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10MB
-_MIN_EXTRACTABLE_CHARS = 50  # below this, likely a scanned/image-only file
-_PARSE_TIMEOUT_S = 15.0  # docling/pypdfium2 are synchronous native-backed
-# libraries parsing untrusted bytes (zip bombs, XML entity expansion,
-# pathological PDFs) — bound the wall-clock cost regardless of cause.
-# Below this, a genuinely short resume legitimately having nothing to
-# extract is plausible — above it, a fully empty result is far more likely
-# a weak/failed extraction than a resume with truly nothing on it. See
-# role_intelligence.py's _is_suspiciously_empty for why this check exists
-# (model_gateway only validates JSON shape, not content quality).
-_MIN_CHARS_FOR_EMPTY_CHECK = 300
 
 _RESUME_SYSTEM_PROMPT = """You are extracting structured data from a candidate's resume for a \
 recruiter to review. Extract strictly based on what is actually written in the resume text \
@@ -190,8 +184,43 @@ def _backfill_thin_unparsed_sections(
     return backfilled
 
 
+def _drop_unparsed_sections_captured_elsewhere(
+    sections: list[UnparsedSection], output: ResumeExtractionLLMOutput
+) -> list[UnparsedSection]:
+    """_backfill_thin_unparsed_sections above is deliberately title-blind
+    (see its own docstring) — it can end up recovering real content for a
+    section whose content the model *also* already captured under e.g.
+    education, producing a duplicate stub (confirmed in practice on a real
+    resume: "Courses"/"Achievements" showed up both here and, correctly,
+    under education). That duplication was an accepted cosmetic tradeoff
+    when backfill was written, but it's avoidable now without touching
+    backfill itself or the prompt (a prompt-level fix for this exact kind
+    of thing already backfired once this session — see this function's
+    sibling comment history — so this stays code-level and deterministic).
+
+    Only drops a section when its title exact-matches (case-insensitive) a
+    `section` value the model already reported on a real, grounded claim
+    elsewhere — never a fuzzy text-similarity check, so it can't misfire on
+    a genuinely-unparsed section that merely shares wording with a real
+    one."""
+    captured_titles = {
+        entry.section.strip().lower()
+        for field in (
+            output.education,
+            output.certifications,
+            output.projects,
+            output.awards,
+            output.publications,
+            output.languages,
+        )
+        for entry in field
+        if entry.section
+    }
+    return [s for s in sections if s.section_title.strip().lower() not in captured_titles]
+
+
 def _is_suspiciously_empty(output: ResumeExtractionLLMOutput, char_count: int) -> bool:
-    if char_count < _MIN_CHARS_FOR_EMPTY_CHECK:
+    if char_count < MIN_CHARS_FOR_EMPTY_CHECK:
         return False
     return not (
         output.work_history
@@ -215,14 +244,14 @@ async def health() -> dict[str, str]:
 @router.post("/parse", response_model=ResumeExtractionResponse)
 async def parse_resume(file: UploadFile = File(...)) -> ResumeExtractionResponse:
     data = await file.read()
-    if len(data) > _MAX_FILE_BYTES:
-        raise HTTPException(413, f"file exceeds {_MAX_FILE_BYTES // (1024 * 1024)}MB limit")
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(413, f"file exceeds {MAX_FILE_BYTES // (1024 * 1024)}MB limit")
 
     filename = file.filename or ""
     try:
         parsed: ParsedDocument = await asyncio.wait_for(
             asyncio.to_thread(parse_document, data, filename, file.content_type),
-            timeout=_PARSE_TIMEOUT_S,
+            timeout=PARSE_TIMEOUT_S,
         )
     except UnsupportedFileTypeError as exc:
         raise HTTPException(415, str(exc)) from exc
@@ -232,10 +261,10 @@ async def parse_resume(file: UploadFile = File(...)) -> ResumeExtractionResponse
         # Python <3.11's asyncio.TimeoutError isn't the same class as the
         # builtin TimeoutError (they unified in 3.11) — catch both so this
         # works identically on the 3.12 deploy target and older local envs.
-        logger.warning("resume parse timed out after %.0fs: %s", _PARSE_TIMEOUT_S, filename)
+        logger.warning("resume parse timed out after %.0fs: %s", PARSE_TIMEOUT_S, filename)
         raise HTTPException(422, "document took too long to parse") from exc
 
-    if parsed.char_count < _MIN_EXTRACTABLE_CHARS:
+    if parsed.char_count < MIN_EXTRACTABLE_CHARS:
         raise HTTPException(
             422, "document has no extractable text (possibly a scanned image)"
         )
@@ -253,6 +282,9 @@ async def parse_resume(file: UploadFile = File(...)) -> ResumeExtractionResponse
 
     llm_output.unparsed_sections = _backfill_thin_unparsed_sections(
         llm_output.unparsed_sections, parsed.text
+    )
+    llm_output.unparsed_sections = _drop_unparsed_sections_captured_elsewhere(
+        llm_output.unparsed_sections, llm_output
     )
 
     if _is_suspiciously_empty(llm_output, parsed.char_count):

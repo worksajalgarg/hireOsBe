@@ -7,9 +7,12 @@ RUN apt-get update && apt-get install -y \
     gcc g++ libffi-dev curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Worker-only deps (< 100MB RAM target) — never the ~500MB+ docling/torch
+# resume/JD parsing stack, which app.voice_agent.worker never imports (see
+# requirements-worker.txt's comment). Use requirements-api.txt instead if
+# this Dockerfile ever needs to build app.main:app's image.
+COPY requirements-worker.txt .
+RUN pip install --no-cache-dir -r requirements-worker.txt
 
 # Copy app code, config, and environment
 COPY .env* ./

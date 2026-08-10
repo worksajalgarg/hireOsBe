@@ -1,0 +1,43 @@
+-r requirements-worker.txt
+
+# Resume/JD document parsing (resume_intelligence, role_intelligence) — only
+# app.main:app (the FastAPI service) needs this, never the voice_agent
+# worker (see requirements-worker.txt's comment) — split into its own file
+# so the worker's Docker image doesn't pay for a stack it never imports.
+#
+# docling's DOCX backend (declarative, no ML model) is always used for DOCX.
+# For PDF, two engines are available behind the PDF_PARSER_ENGINE env var
+# (see app/agents/parsing/document_parser.py's pdf_engine()), DEFAULTING TO
+# docling — its real layout analysis fixes a confirmed reading-order bug
+# pypdfium2 has on templated/multi-column resumes (see document_parser.py's
+# module docstring; validated end-to-end against real resumes this
+# session). That's the reason for this whole split: docling pulls in torch +
+# docling-ibm-models (~500MB+), which is fine for whatever deploys
+# app.main:app but would have VIOLATED requirements-worker.txt's "< 100MB
+# RAM" budget for the voice worker if left in one shared file. pypdfium2
+# stays too — the fallback engine, one env var away
+# (PDF_PARSER_ENGINE=pypdfium2), not deleted per the migration's own "don't
+# remove until proven unnecessary" principle.
+docling==2.118.1
+docling-core==2.91.0
+docling-ibm-models==3.13.3
+docling-parse==7.11.0
+torch==2.13.0
+torchvision==0.28.0
+rtree==1.4.1
+pypdfium2==5.12.1
+python-multipart==0.0.32   # required by FastAPI's UploadFile/File(...) form parsing
+
+# Phase 2 format support (HTML/Markdown/AsciiDoc/ODT/images) — see
+# document_parser.py's _DECLARATIVE_EXTENSIONS and docling_adapter.py's
+# image handling. Only ODT needs a new package: docling's
+# OdtDocumentBackend imports odfdo directly (confirmed by reading
+# opendocument_backend.py's source — NOT odfpy, a different, wrong-guess
+# package with a similar name and a similar-looking `odf` import namespace
+# that was tried first and only failed at runtime with an explicit "the
+# 'odfdo' package is required" error, not an import error, so it's worth
+# getting this exact name right rather than trusting the similarity again).
+# Pure Python, no system deps. HTML/Markdown/AsciiDoc/images need nothing
+# new: their backends ship in the `docling` package already above, and
+# images reuse the same OCR/torch stack already installed for PDF.
+odfdo==3.24.3

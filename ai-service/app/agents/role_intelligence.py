@@ -15,6 +15,12 @@ import logging
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..model_gateway.gateway import model_gateway
+from .document_intake_limits import (
+    MAX_FILE_BYTES,
+    MIN_CHARS_FOR_EMPTY_CHECK,
+    MIN_EXTRACTABLE_CHARS,
+    PARSE_TIMEOUT_S,
+)
 from .parsing import ParsedDocument, ParsingError, UnsupportedFileTypeError, parse_document
 from .role_intelligence_schema import RoleExtractionLLMOutput, RoleExtractionResponse
 
@@ -23,14 +29,6 @@ logger = logging.getLogger("role_intelligence")
 router = APIRouter(prefix="/role-intelligence", tags=["role-intelligence"])
 
 USE_CASE = "role_parsing"
-
-_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10MB
-_MIN_EXTRACTABLE_CHARS = 50  # below this, likely a scanned/image-only file
-_PARSE_TIMEOUT_S = 15.0
-# Below this, a genuinely short JD (a one-line posting) legitimately having
-# nothing to extract is plausible — above it, a fully empty result is far
-# more likely a weak/failed extraction than a JD with truly nothing in it.
-_MIN_CHARS_FOR_EMPTY_CHECK = 300
 
 _ROLE_SYSTEM_PROMPT = """You are extracting structured data from a job description for a \
 recruiter to review. Extract strictly based on what is actually written in the text provided \
@@ -81,7 +79,7 @@ def _is_suspiciously_empty(output: RoleExtractionLLMOutput, char_count: int) -> 
     the schema validator structurally cannot. Confirmed necessary in
     practice: a free-tier model returned exactly this shape (all lists
     empty, no unparsed_sections either) for a real ~500-word JD."""
-    if char_count < _MIN_CHARS_FOR_EMPTY_CHECK:
+    if char_count < MIN_CHARS_FOR_EMPTY_CHECK:
         return False
     return not (
         output.must_have_requirements
@@ -99,24 +97,24 @@ async def health() -> dict[str, str]:
 @router.post("/parse", response_model=RoleExtractionResponse)
 async def parse_role(file: UploadFile = File(...)) -> RoleExtractionResponse:
     data = await file.read()
-    if len(data) > _MAX_FILE_BYTES:
-        raise HTTPException(413, f"file exceeds {_MAX_FILE_BYTES // (1024 * 1024)}MB limit")
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(413, f"file exceeds {MAX_FILE_BYTES // (1024 * 1024)}MB limit")
 
     filename = file.filename or ""
     try:
         parsed: ParsedDocument = await asyncio.wait_for(
             asyncio.to_thread(parse_document, data, filename, file.content_type),
-            timeout=_PARSE_TIMEOUT_S,
+            timeout=PARSE_TIMEOUT_S,
         )
     except UnsupportedFileTypeError as exc:
         raise HTTPException(415, str(exc)) from exc
     except ParsingError as exc:
         raise HTTPException(422, f"could not parse document: {exc}") from exc
     except (TimeoutError, asyncio.TimeoutError) as exc:
-        logger.warning("role parse timed out after %.0fs: %s", _PARSE_TIMEOUT_S, filename)
+        logger.warning("role parse timed out after %.0fs: %s", PARSE_TIMEOUT_S, filename)
         raise HTTPException(422, "document took too long to parse") from exc
 
-    if parsed.char_count < _MIN_EXTRACTABLE_CHARS:
+    if parsed.char_count < MIN_EXTRACTABLE_CHARS:
         raise HTTPException(
             422, "document has no extractable text (possibly a scanned image)"
         )

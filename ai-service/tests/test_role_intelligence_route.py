@@ -22,8 +22,10 @@ def test_empty_file_returns_422() -> None:
 
 
 def test_unsupported_file_type_returns_415() -> None:
+    """.zip, not .png — .png became a supported image extension this
+    session (see document_parser.py's _IMAGE_EXTENSIONS)."""
     response = client.post(
-        "/role-intelligence/parse", files={"file": ("jd.png", b"hello", "image/png")}
+        "/role-intelligence/parse", files={"file": ("jd.zip", b"hello", "application/zip")}
     )
     assert response.status_code == 415
 
@@ -77,7 +79,7 @@ def test_empty_extraction_on_substantial_jd_returns_502(monkeypatch) -> None:
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf)
-    # Comfortably over _MIN_CHARS_FOR_EMPTY_CHECK (300).
+    # Comfortably over MIN_CHARS_FOR_EMPTY_CHECK (300, in document_intake_limits.py).
     for i in range(12):
         c.drawString(72, 750 - i * 20, f"Requirement line number {i} of the job description.")
     c.save()

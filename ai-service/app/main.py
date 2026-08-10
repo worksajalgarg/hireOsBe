@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import sys
@@ -15,6 +16,8 @@ from .agents import (
     resume_intelligence,
     role_intelligence,
 )
+from .agents.parsing.docling_adapter import warm_up as warm_up_docling
+from .agents.parsing.document_parser import pdf_engine
 from .dev_tools import metrics_dashboard
 from .model_gateway.routing_config import load_routing_config
 from .model_gateway.use_case_policy import USE_CASE_POLICIES
@@ -96,6 +99,23 @@ async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
     # does the equivalent load for the separate worker process.
     path = Path(__file__).resolve().parent.parent / "config" / "model_routing.yaml"
     USE_CASE_POLICIES.update(load_routing_config(path))
+
+    if pdf_engine() == "docling":
+        # Loading docling's layout/OCR model weights is expensive — profiled
+        # at 20-30s cold — and only needs to happen once per process, not
+        # once per resume upload (a per-request DocumentConverter was
+        # silently re-paying this on every single upload before the adapter
+        # cached it). Paying that cost here, at startup, means the first
+        # real user request is fast too, not just the second one onward.
+        # Best-effort: log and continue on failure rather than blocking
+        # startup — the first real request will just retry it.
+        try:
+            await asyncio.to_thread(warm_up_docling)
+        except Exception:
+            logging.getLogger("app.main").exception(
+                "docling warm-up failed at startup — will retry lazily on first PDF request"
+            )
+
     yield
 
 

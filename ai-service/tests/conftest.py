@@ -56,3 +56,92 @@ def synthetic_pdf_bytes() -> bytes:
     c.drawString(72, 710, "Experience: Example Corp - Placeholder Engineer (2021-Present)")
     c.save()
     return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def synthetic_scanned_pdf_bytes() -> bytes:
+    """A PDF with no real text layer at all — the page content is a
+    rasterized image of text, not embedded text objects — so it genuinely
+    exercises docling's OCR path rather than its normal text-extraction
+    path. Confirms parse_pdf_with_docling's used_ocr signal against a real
+    "scanned document" case, not a mock."""
+    import io
+
+    from PIL import Image, ImageDraw
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+
+    img = Image.new("RGB", (600, 200), "white")
+    ImageDraw.Draw(img).text((10, 80), "Scanned Placeholder Text", fill="black")
+    img_buf = io.BytesIO()
+    img.save(img_buf, format="PNG")
+    img_buf.seek(0)
+
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(600, 200))
+    c.drawImage(ImageReader(img_buf), 0, 0, width=600, height=200)
+    c.save()
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def synthetic_html_bytes() -> bytes:
+    """Plain text is enough — the html_backend test only needs to confirm
+    text extraction works, not exercise any layout/table edge case."""
+    return (
+        b"<html><body><h1>Test Candidate</h1>"
+        b"<p>Placeholder Engineer with 5 years of made-up experience.</p>"
+        b"</body></html>"
+    )
+
+
+@pytest.fixture(scope="session")
+def synthetic_markdown_bytes() -> bytes:
+    return (
+        b"# Test Candidate\n\n"
+        b"Placeholder Engineer with 5 years of made-up experience.\n"
+    )
+
+
+@pytest.fixture(scope="session")
+def synthetic_asciidoc_bytes() -> bytes:
+    return (
+        b"= Test Candidate\n\n"
+        b"Placeholder Engineer with 5 years of made-up experience.\n"
+    )
+
+
+@pytest.fixture(scope="session")
+def synthetic_odt_bytes() -> bytes:
+    """A minimal, entirely synthetic .odt generated in-memory via odfdo —
+    same synthetic-only rationale as synthetic_docx_bytes above. odfdo, not
+    odfpy: confirmed by reading docling's opendocument_backend.py source
+    directly (`from odfdo import ...`) after odfpy turned out to be the
+    wrong package name — docling's actual runtime error names odfdo
+    explicitly."""
+    import io
+
+    from odfdo import Document, Paragraph
+
+    doc = Document("text")
+    doc.body.append(Paragraph("Test Candidate"))
+    doc.body.append(Paragraph("Placeholder Engineer with 5 years of made-up experience."))
+    buf = io.BytesIO()
+    doc.save(target=buf)
+    return buf.getvalue()
+
+
+@pytest.fixture(scope="session")
+def synthetic_image_bytes() -> bytes:
+    """A rasterized PNG with no embedded text layer — same
+    Pillow-drawn-text approach as synthetic_scanned_pdf_bytes above, minus
+    the PDF wrapper, so it exercises docling's image/OCR path directly."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (600, 200), "white")
+    ImageDraw.Draw(img).text((10, 80), "Scanned Placeholder Resume", fill="black")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()

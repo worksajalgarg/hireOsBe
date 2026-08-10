@@ -1,22 +1,8 @@
-# Lightweight LiveKit Cloud configuration (< 100MB RAM)
-fastapi==0.139.2
-starlette>=1.3.1
-uvicorn[standard]==0.51.0
-pydantic==2.13.4
-PyYAML==6.0.3
-python-dotenv==1.2.2
-openai==2.49.0
-google-genai==2.14.0
-livekit-agents==1.6.7
-livekit-plugins-deepgram==1.6.7
-livekit-plugins-elevenlabs==1.6.7
-
-# Resume/JD document parsing (resume_intelligence, role_intelligence).
-# docling handles DOCX only (its declarative backend has no ML models);
-# pypdfium2 handles PDF directly — docling's own PDF pipeline unconditionally
-# loads a ~500MB+ torch layout model even with OCR/tables disabled, which
-# this < 100MB RAM budget can't absorb. See docs/adr for the full reasoning.
-docling-slim[format-docx]==2.118.1
-pypdfium2==5.12.1
-python-multipart==0.0.32   # required by FastAPI's UploadFile/File(...) form parsing
-
+# Alias, not the source of truth — kept so existing workflows that install
+# from this exact filename (requirements-dev.txt's `-r requirements.txt`,
+# any external docs/scripts) keep working unchanged. The real split is
+# requirements-worker.txt (what Dockerfile actually installs for the voice
+# worker — < 100MB RAM) vs requirements-api.txt (adds the ~500MB+
+# docling/torch resume/JD parsing stack, worker never needs it) — see
+# those two files' comments for why they're separate.
+-r requirements-api.txt

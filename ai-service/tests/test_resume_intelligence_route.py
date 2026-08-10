@@ -2,7 +2,10 @@ import io
 
 from fastapi.testclient import TestClient
 
-from app.agents.resume_intelligence import _backfill_thin_unparsed_sections
+from app.agents.resume_intelligence import (
+    _backfill_thin_unparsed_sections,
+    _drop_unparsed_sections_captured_elsewhere,
+)
 from app.agents.resume_intelligence_schema import (
     EvidencedClaim,
     ResumeExtractionLLMOutput,
@@ -28,8 +31,10 @@ def test_empty_file_returns_422() -> None:
 
 
 def test_unsupported_file_type_returns_415() -> None:
+    """.zip, not .png — .png became a supported image extension this
+    session (see document_parser.py's _IMAGE_EXTENSIONS)."""
     response = client.post(
-        "/resume-intelligence/parse", files={"file": ("resume.png", b"hello", "image/png")}
+        "/resume-intelligence/parse", files={"file": ("resume.zip", b"hello", "application/zip")}
     )
     assert response.status_code == 415
 
@@ -206,3 +211,43 @@ def test_backfill_rejects_a_sibling_heading_as_recovered_content() -> None:
 
     assert result[0].raw_text == "Courses"  # left as-is, not "Achievements"
     assert result[1].raw_text == "Achievements"  # left as-is, nothing follows it
+
+
+def test_drop_unparsed_sections_captured_elsewhere_removes_duplicate_stub() -> None:
+    """Reproduces the real duplication: a resume's Courses content is
+    correctly captured under education (with section="Courses"), but the
+    model *also* flagged an unparsed_sections stub for the same title."""
+    output = ResumeExtractionLLMOutput(
+        education=[
+            EvidencedClaim(
+                claim="Advanced Data Structures — Coursera, 2023",
+                source_text="Advanced Data Structures — Coursera, 2023",
+                section="Courses",
+            )
+        ],
+        unparsed_sections=[
+            UnparsedSection(section_title="Courses", raw_text="Advanced Data Structures")
+        ],
+    )
+
+    result = _drop_unparsed_sections_captured_elsewhere(output.unparsed_sections, output)
+
+    assert result == []
+
+
+def test_drop_unparsed_sections_captured_elsewhere_keeps_genuinely_unmatched_sections() -> None:
+    output = ResumeExtractionLLMOutput(
+        education=[
+            EvidencedClaim(
+                claim="B.Tech, Example University",
+                source_text="B.Tech, Example University",
+                section="Education",
+            )
+        ],
+        unparsed_sections=[UnparsedSection(section_title="Hobbies", raw_text="Chess, hiking")],
+    )
+
+    result = _drop_unparsed_sections_captured_elsewhere(output.unparsed_sections, output)
+
+    assert len(result) == 1
+    assert result[0].section_title == "Hobbies"

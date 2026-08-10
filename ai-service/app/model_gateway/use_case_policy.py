@@ -52,6 +52,15 @@ class ProviderChoice:
     # Groq was killing perfectly-fine free-tier calls that just needed a
     # bit more patience, forcing spurious fallbacks on nearly every turn.
     timeout_s: float | None = None
+    # Output token budget for this tier's structured calls — None means "use
+    # the client's default" (_OpenAICompatibleClient's 2048). Needed because
+    # a large evidence-grounded schema (many claim lists, each carrying a
+    # verbatim source_text) on a long document can need well more than 2048
+    # output tokens; confirmed in practice — a real ~4700-char resume with
+    # 4 jobs truncated Groq's response, silently leaving education/projects/
+    # awards empty rather than failing outright (they're the fields the
+    # schema declares last, after work_history/skills).
+    max_tokens: int | None = None
 
 
 @dataclass(frozen=True)

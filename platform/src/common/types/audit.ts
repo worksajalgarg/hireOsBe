@@ -20,7 +20,21 @@ export type AuditEventType =
   | "interview.transcript.ingested"
   | "prompt.template.created"
   | "prompt.template.updated"
-  | "prompt.template.deleted";
+  | "prompt.template.deleted"
+  | "job_role.created"
+  | "job_role.updated"
+  | "job_role.status_changed"
+  | "job_role.jd_parsed"
+  | "job_role.jd_parse_failed"
+  | "resume.uploaded"
+  | "resume.parse_completed"
+  | "resume.parse_failed"
+  | "resume.deleted"
+  | "candidate.created"
+  | "candidate.updated"
+  | "application.created"
+  | "application.stage_changed"
+  | "application.disposition";
 
 export interface AuditEvent {
   id: string;

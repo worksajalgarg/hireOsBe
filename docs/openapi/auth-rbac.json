@@ -602,31 +602,642 @@
         ]
       }
     },
-    "/api/v1/role-contexts/_stub": {
+    "/api/v1/job-roles": {
       "get": {
-        "operationId": "RoleContextController_stub",
-        "parameters": [],
+        "operationId": "JobRolesController_list",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
-          "RoleContext"
+          "job-roles"
+        ]
+      },
+      "post": {
+        "operationId": "JobRolesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "job-roles"
         ]
       }
     },
-    "/api/v1/candidates/_stub": {
+    "/api/v1/job-roles/{id}": {
       "get": {
-        "operationId": "CandidatesController_stub",
-        "parameters": [],
+        "operationId": "JobRolesController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": ""
           }
         },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
-          "Candidates"
+          "job-roles"
+        ]
+      },
+      "patch": {
+        "operationId": "JobRolesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateJobRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "job-roles"
+        ]
+      }
+    },
+    "/api/v1/job-roles/upload": {
+      "post": {
+        "operationId": "JobRolesController_createFromFile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRoleFromFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "job-roles"
+        ]
+      }
+    },
+    "/api/v1/job-roles/{id}/status": {
+      "post": {
+        "operationId": "JobRolesController_setStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetJobRoleStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "job-roles"
+        ]
+      }
+    },
+    "/api/v1/job-roles/{id}/reparse": {
+      "post": {
+        "operationId": "JobRolesController_reparse",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "job-roles"
+        ]
+      }
+    },
+    "/api/v1/job-roles/{id}/jd-download": {
+      "get": {
+        "operationId": "JobRolesController_jdDownload",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "job-roles"
+        ]
+      }
+    },
+    "/api/v1/job-roles/{jobRoleId}/resumes": {
+      "post": {
+        "operationId": "ResumesController_upload",
+        "parameters": [
+          {
+            "name": "jobRoleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      },
+      "get": {
+        "operationId": "ResumesController_listForJobRole",
+        "parameters": [
+          {
+            "name": "jobRoleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
+    "/api/v1/resumes/{id}": {
+      "get": {
+        "operationId": "ResumesController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      },
+      "delete": {
+        "operationId": "ResumesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
+    "/api/v1/resumes/{id}/download": {
+      "get": {
+        "operationId": "ResumesController_download",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
+    "/api/v1/resumes/{id}/reparse": {
+      "post": {
+        "operationId": "ResumesController_reparse",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
+    "/api/v1/candidates": {
+      "get": {
+        "operationId": "CandidatesController_list",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "candidates"
+        ]
+      }
+    },
+    "/api/v1/candidates/{id}": {
+      "get": {
+        "operationId": "CandidatesController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "candidates"
+        ]
+      },
+      "patch": {
+        "operationId": "CandidatesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCandidateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "candidates"
+        ]
+      }
+    },
+    "/api/v1/job-roles/{jobRoleId}/pipeline": {
+      "get": {
+        "operationId": "ApplicationsController_pipeline",
+        "parameters": [
+          {
+            "name": "jobRoleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "applications"
+        ]
+      }
+    },
+    "/api/v1/applications": {
+      "post": {
+        "operationId": "ApplicationsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApplicationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "applications"
+        ]
+      }
+    },
+    "/api/v1/applications/{id}/stage": {
+      "patch": {
+        "operationId": "ApplicationsController_moveStage",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveApplicationStageDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "applications"
+        ]
+      }
+    },
+    "/api/v1/applications/{id}/disposition": {
+      "patch": {
+        "operationId": "ApplicationsController_setDisposition",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetApplicationDispositionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "applications"
         ]
       }
     },
@@ -986,6 +1597,38 @@
         "properties": {}
       },
       "CreateRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateJobRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateJobRoleFromFileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateJobRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "SetJobRoleStatusDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCandidateDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateApplicationDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "MoveApplicationStageDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "SetApplicationDispositionDto": {
         "type": "object",
         "properties": {}
       },

@@ -12,6 +12,12 @@ resume_parsing:
       model: llama-3.1-8b-instant
   rationale: test fixture
 
+role_parsing:
+  chain:
+    - provider: groq
+      model: llama-3.1-8b-instant
+  rationale: test fixture
+
 evidence_matching:
   chain:
     - provider: groq

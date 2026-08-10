@@ -29,6 +29,56 @@ enum InterviewSessionStatus {
   FAILED
 }
 
+enum JobRoleStatus {
+  DRAFT
+  OPEN
+  ON_HOLD
+  CLOSED
+}
+
+enum JdSourceType {
+  UPLOAD
+  PASTE
+}
+
+enum ExtractionStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum ResumeStatus {
+  UPLOADED
+  PARSING
+  PARSED
+  PARSE_FAILED
+  QUARANTINED
+}
+
+enum ApplicationStage {
+  APPLIED
+  SCREENING
+  SHORTLISTED
+  INTERVIEW_SCHEDULED
+  INTERVIEWED
+  OFFER
+}
+
+enum ApplicationStatus {
+  ACTIVE
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+enum CandidateSource {
+  RESUME_UPLOAD
+  MANUAL
+  REFERRAL
+  IMPORT
+}
+
 model Tenant {
   id           String   @id @default(uuid())
   name         String
@@ -46,6 +96,13 @@ model Tenant {
   auditEvents  AuditEvent[]
   interviewSessions InterviewSession[]
   promptTemplates   PromptTemplate[]
+  jobRoles           JobRole[]
+  jobRoleExtractions JobRoleExtraction[]
+  candidates         Candidate[]
+  resumes            Resume[]
+  resumeExtractions  ResumeExtraction[]
+  applications       Application[]
+  applicationStageEvents ApplicationStageEvent[]
 
   @@map("tenants")
 }
@@ -69,6 +126,7 @@ model User {
   passwordResetTokens PasswordResetToken[]
   invitationsSent     TenantInvitation[]   @relation("InvitationInviter")
   policiesUpdated     TenantPolicy[]       @relation("PolicyUpdater")
+  jobRolesCreated     JobRole[]            @relation("JobRoleCreator")
 
   @@index([ssoProvider, ssoId])
   @@map("users")
@@ -250,6 +308,7 @@ model InterviewSession {
   prompt PromptTemplate? @relation(fields: [promptId], references: [id], onDelete: SetNull)
   transcript InterviewTranscript?
   summary    InterviewSummary?
+  application Application?
 
   @@index([tenantId])
   @@index([inviteTokenHash])
@@ -328,4 +387,231 @@ model AuditEvent {
   @@index([tenantId])
   @@index([tenantId, entityType, entityId])
   @@map("audit_events")
+}
+
+/// A hiring requisition. NOT the RBAC `Role` model (table `roles`) — that is
+/// permissions; this is a job opening. See docs/adr/0008-job-role-naming.md.
+model JobRole {
+  id             String        @id @default(uuid())
+  tenantId       String        @map("tenant_id")
+  title          String
+  department     String?
+  location       String?
+  employmentType String?       @map("employment_type")
+  seniority      String?
+  status         JobRoleStatus @default(DRAFT)
+  jdSourceType   JdSourceType  @map("jd_source_type")
+  /// Raw JD text: the pasted body, or the text extracted from the uploaded
+  /// file by ai-service. Employer-authored, not candidate PII.
+  jdText         String?       @db.Text @map("jd_text")
+  jdFileKey      String?       @map("jd_file_key")
+  jdFileName     String?       @map("jd_file_name")
+  jdMimeType     String?       @map("jd_mime_type")
+  jdSizeBytes    Int?          @map("jd_size_bytes")
+  /// The extraction currently treated as authoritative. Nullable: a role can
+  /// exist before/without a successful parse.
+  activeExtractionId String?   @unique @map("active_extraction_id")
+  createdBy      String        @map("created_by")
+  closedAt       DateTime?     @map("closed_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+  deletedAt      DateTime?     @map("deleted_at")
+
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator          User               @relation("JobRoleCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  extractions      JobRoleExtraction[] @relation("JobRoleExtractions")
+  activeExtraction JobRoleExtraction? @relation("JobRoleActiveExtraction", fields: [activeExtractionId], references: [id], onDelete: SetNull)
+  applications     Application[]
+  resumes          Resume[]           @relation("JobRoleResumes")
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("job_roles")
+}
+
+/// One attempt at structured extraction from a JD, produced by ai-service's
+/// POST /role-intelligence/parse. extractionJson is a RoleExtractionResponse
+/// (ai-service/app/agents/role_intelligence_schema.py) verbatim. Kept as a
+/// separate table (not JSON columns on JobRole) so re-parsing an amended JD
+/// keeps an auditable history.
+model JobRoleExtraction {
+  id             String           @id @default(uuid())
+  tenantId       String           @map("tenant_id")
+  jobRoleId      String           @map("job_role_id")
+  attempt        Int              @default(1)
+  status         ExtractionStatus @default(PENDING)
+  extractionJson Json?            @map("extraction_json")
+  modelVersion   String?          @map("model_version")
+  errorCode      String?          @map("error_code")
+  errorMessage   String?          @db.Text @map("error_message")
+  startedAt      DateTime?        @map("started_at")
+  completedAt    DateTime?        @map("completed_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  jobRole   JobRole @relation("JobRoleExtractions", fields: [jobRoleId], references: [id], onDelete: Cascade)
+  activeFor JobRole? @relation("JobRoleActiveExtraction")
+
+  @@unique([jobRoleId, attempt])
+  @@index([tenantId])
+  @@index([jobRoleId, status])
+  @@map("job_role_extractions")
+}
+
+model Candidate {
+  id              String          @id @default(uuid())
+  tenantId        String          @map("tenant_id")
+  fullName        String          @map("full_name")
+  primaryEmail    String?         @map("primary_email")
+  /// lower(trim(primaryEmail)) — the dedupe key, written by the service
+  /// layer. Uniqueness is a partial index (tenant_id, email_normalized)
+  /// added by hand in this migration — Prisma can't express a WHERE clause.
+  emailNormalized String?         @map("email_normalized")
+  primaryPhone    String?         @map("primary_phone")
+  currentTitle    String?         @map("current_title")
+  location        String?
+  source          CandidateSource @default(RESUME_UPLOAD)
+  createdBy       String?         @map("created_by")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+  deletedAt       DateTime?       @map("deleted_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resumes      Resume[]
+  applications Application[]
+
+  @@index([tenantId])
+  @@index([tenantId, emailNormalized])
+  @@map("candidates")
+}
+
+model Resume {
+  id                  String        @id @default(uuid())
+  tenantId            String        @map("tenant_id")
+  /// Nullable at upload time — the Candidate is created/matched only after
+  /// parsing yields a name/email.
+  candidateId         String?       @map("candidate_id")
+  /// The role this resume was uploaded against — set at upload time,
+  /// independent of the Application link (which only exists once parsing
+  /// succeeds and a candidate is linked). Needed so "resumes for this role"
+  /// can list resumes still UPLOADED/PARSING, not just fully-linked ones.
+  jobRoleId           String?       @map("job_role_id")
+  uploadedBy          String        @map("uploaded_by")
+  /// S3/MinIO object key: `${tenantId}/resumes/${resumeId}/${slug}` —
+  /// mirrors interviews/livekit.service.ts's `${tenantId}/${sessionId}/...`.
+  storageKey          String        @unique @map("storage_key")
+  originalFilename    String        @map("original_filename")
+  mimeType            String        @map("mime_type")
+  sizeBytes           Int           @map("size_bytes")
+  checksumSha256      String        @map("checksum_sha256")
+  status              ResumeStatus  @default(UPLOADED)
+  extractedTextLength Int?          @map("extracted_text_length")
+  activeExtractionId  String?       @unique @map("active_extraction_id")
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  deletedAt           DateTime?     @map("deleted_at")
+
+  tenant           Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate        Candidate?         @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  jobRole          JobRole?           @relation("JobRoleResumes", fields: [jobRoleId], references: [id], onDelete: SetNull)
+  extractions      ResumeExtraction[] @relation("ResumeExtractions")
+  activeExtraction ResumeExtraction?  @relation("ResumeActiveExtraction", fields: [activeExtractionId], references: [id], onDelete: SetNull)
+  applications     Application[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([candidateId])
+  @@index([tenantId, checksumSha256])
+  @@index([jobRoleId])
+  @@map("resumes")
+}
+
+/// One attempt at structured extraction from a resume, produced by
+/// ai-service's POST /resume-intelligence/parse. extractionJson is a
+/// ResumeExtractionResponse (resume_intelligence_schema.py) verbatim —
+/// candidate PII (name, contact, employer history, verbatim quotes),
+/// retained deliberately as the product data; covered by
+/// TenantPolicy.retentionDays.
+model ResumeExtraction {
+  id             String           @id @default(uuid())
+  tenantId       String           @map("tenant_id")
+  resumeId       String           @map("resume_id")
+  attempt        Int              @default(1)
+  status         ExtractionStatus @default(PENDING)
+  extractionJson Json?            @map("extraction_json")
+  modelVersion   String?          @map("model_version")
+  errorCode      String?          @map("error_code")
+  errorMessage   String?          @db.Text @map("error_message")
+  startedAt      DateTime?        @map("started_at")
+  completedAt    DateTime?        @map("completed_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resume    Resume  @relation("ResumeExtractions", fields: [resumeId], references: [id], onDelete: Cascade)
+  activeFor Resume? @relation("ResumeActiveExtraction")
+
+  @@unique([resumeId, attempt])
+  @@index([tenantId])
+  @@index([resumeId, status])
+  @@map("resume_extractions")
+}
+
+/// A candidate's presence in one job role's pipeline — the pairing carries
+/// the stage, not the person, since a candidate can apply to more than one
+/// role. Aligns with CandidateEvaluation's {candidateId, roleId} shape in
+/// common/types/evaluation.ts.
+model Application {
+  id                 String            @id @default(uuid())
+  tenantId           String            @map("tenant_id")
+  candidateId        String            @map("candidate_id")
+  jobRoleId          String            @map("job_role_id")
+  resumeId           String?           @map("resume_id")
+  stage              ApplicationStage  @default(APPLIED)
+  status             ApplicationStatus @default(ACTIVE)
+  stageEnteredAt     DateTime          @default(now()) @map("stage_entered_at")
+  dispositionReason  String?           @db.Text @map("disposition_reason")
+  assignedTo         String?           @map("assigned_to")
+  /// Soft link to a voice interview — nullable, SetNull. candidateRef on
+  /// InterviewSession stays a plain string (see that model's doc-comment);
+  /// converting it to a real FK is separate follow-up work, not done here.
+  interviewSessionId String?           @unique @map("interview_session_id")
+  createdBy          String            @map("created_by")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  candidate        Candidate         @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  jobRole          JobRole           @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  resume           Resume?           @relation(fields: [resumeId], references: [id], onDelete: SetNull)
+  interviewSession InterviewSession? @relation(fields: [interviewSessionId], references: [id], onDelete: SetNull)
+  stageEvents      ApplicationStageEvent[]
+
+  @@unique([tenantId, candidateId, jobRoleId])
+  @@index([tenantId])
+  @@index([tenantId, jobRoleId, stage])
+  @@index([tenantId, status])
+  @@map("applications")
+}
+
+/// Append-only stage transition history — same posture as AuditEvent, never
+/// UPDATEd or DELETEd.
+model ApplicationStageEvent {
+  id            String             @id @default(uuid())
+  tenantId      String             @map("tenant_id")
+  applicationId String             @map("application_id")
+  fromStage     ApplicationStage?  @map("from_stage")
+  toStage       ApplicationStage   @map("to_stage")
+  fromStatus    ApplicationStatus? @map("from_status")
+  toStatus      ApplicationStatus  @map("to_status")
+  /// Nullable — a system/automation transition has no user actor.
+  actorId       String?            @map("actor_id")
+  note          String?            @db.Text
+  createdAt     DateTime           @default(now()) @map("created_at")
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([applicationId, createdAt])
+  @@map("application_stage_events")
 }

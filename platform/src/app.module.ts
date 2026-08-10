@@ -8,7 +8,8 @@ import { RolesGuard } from "./common/roles.guard";
 import { TenantModule } from "./tenant/tenant.module";
 import { UsersModule } from "./users/users.module";
 import { AuditModule } from "./audit/audit.module";
-import { RoleContextModule } from "./role-context/role-context.module";
+import { JobRolesModule } from "./job-roles/job-roles.module";
+import { ResumesModule } from "./resumes/resumes.module";
 import { CandidatesModule } from "./candidates/candidates.module";
 import { WorkflowModule } from "./workflow/workflow.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
@@ -32,7 +33,8 @@ import { PromptsModule } from "./prompts/prompts.module";
     WorkspaceModule,
     RbacModule,
     AuditModule,
-    RoleContextModule,
+    JobRolesModule,
+    ResumesModule,
     CandidatesModule,
     WorkflowModule,
     IntegrationsModule,

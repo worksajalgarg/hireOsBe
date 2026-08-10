@@ -11,3 +11,12 @@ livekit-agents==1.6.7
 livekit-plugins-deepgram==1.6.7
 livekit-plugins-elevenlabs==1.6.7
 
+# Resume/JD document parsing (resume_intelligence, role_intelligence).
+# docling handles DOCX only (its declarative backend has no ML models);
+# pypdfium2 handles PDF directly — docling's own PDF pipeline unconditionally
+# loads a ~500MB+ torch layout model even with OCR/tables disabled, which
+# this < 100MB RAM budget can't absorb. See docs/adr for the full reasoning.
+docling-slim[format-docx]==2.118.1
+pypdfium2==5.12.1
+python-multipart==0.0.32   # required by FastAPI's UploadFile/File(...) form parsing
+

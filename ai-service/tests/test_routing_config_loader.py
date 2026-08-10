@@ -16,6 +16,7 @@ def test_valid_file_parses_into_use_case_policies() -> None:
     assert set(policies) == {
         "role_intake_scorecard",
         "resume_parsing",
+        "role_parsing",
         "evidence_matching",
         "interview_evaluation",
         "candidate_report",

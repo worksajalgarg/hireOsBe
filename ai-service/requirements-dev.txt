@@ -4,3 +4,4 @@ httpx==0.28.1
 httpx2==2.7.0
 ruff==0.15.22
 mypy==2.3.0
+reportlab==5.0.0   # dev-only: generates a synthetic PDF test fixture in-memory

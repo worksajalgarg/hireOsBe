@@ -19,9 +19,12 @@ const cleanUrl = rawUrl
   .replace(/&?sslmode=[^&]*/g, "")
   .replace(/\?$/, "");
 
+// Same local-vs-remote SSL split as common/prisma.service.ts — local
+// Postgres (docker-compose) doesn't support TLS at all.
+const isLocalHost = /^(localhost|127\.0\.0\.1)$/.test(new URL(cleanUrl).hostname);
 const pool = new pg.Pool({
   connectionString: cleanUrl,
-  ssl: { rejectUnauthorized: false },
+  ssl: isLocalHost ? false : { rejectUnauthorized: false },
   connectionTimeoutMillis: 10000,
 });
 const adapter = new PrismaPg(pool);

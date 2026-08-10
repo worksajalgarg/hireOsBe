@@ -36,6 +36,13 @@ class Provider(str, Enum):
     LIVEKIT_INFERENCE = "livekit_inference"
 
 
+def _max_tokens_kwarg(max_tokens: int | None) -> dict[str, int]:
+    """None means "use the client's own default" — only pass max_tokens
+    through when a policy tier actually overrides it, so _OpenAICompatibleClient's
+    default stays the single source of truth for the un-overridden case."""
+    return {"max_tokens": max_tokens} if max_tokens is not None else {}
+
+
 class ProviderClient:
     async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
         raise NotImplementedError
@@ -122,15 +129,17 @@ class _OpenAICompatibleClient(ProviderClient):
 
 
 class OpenAIProviderClient(_OpenAICompatibleClient):
-    def __init__(self, model: str = "gpt-4o-mini") -> None:
+    def __init__(self, model: str = "gpt-4o-mini", max_tokens: int | None = None) -> None:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise KeyError("OPENAI_API_KEY environment variable is not set")
-        super().__init__(AsyncOpenAI(api_key=api_key), model)
+        super().__init__(AsyncOpenAI(api_key=api_key), model, **_max_tokens_kwarg(max_tokens))
 
 
 class GroqProviderClient(_OpenAICompatibleClient):
-    def __init__(self, model: str = "llama-3.3-70b-versatile") -> None:
+    def __init__(
+        self, model: str = "llama-3.3-70b-versatile", max_tokens: int | None = None
+    ) -> None:
         api_key = os.environ.get("GROQ_API_KEY")
         if not api_key:
             raise KeyError("GROQ_API_KEY environment variable is not set")
@@ -138,11 +147,13 @@ class GroqProviderClient(_OpenAICompatibleClient):
             base_url="https://api.groq.com/openai/v1",
             api_key=api_key,
         )
-        super().__init__(client, model)
+        super().__init__(client, model, **_max_tokens_kwarg(max_tokens))
 
 
 class OpenRouterProviderClient(_OpenAICompatibleClient):
-    def __init__(self, model: str = "anthropic/claude-sonnet-5") -> None:
+    def __init__(
+        self, model: str = "anthropic/claude-sonnet-5", max_tokens: int | None = None
+    ) -> None:
         api_key = os.environ.get("OPENROUTER_API_KEY")
         if not api_key:
             raise KeyError("OPENROUTER_API_KEY environment variable is not set")
@@ -150,11 +161,11 @@ class OpenRouterProviderClient(_OpenAICompatibleClient):
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
         )
-        super().__init__(client, model)
+        super().__init__(client, model, **_max_tokens_kwarg(max_tokens))
 
 
 class GeminiProviderClient(ProviderClient):
-    def __init__(self, model: str = "gemini-flash-latest") -> None:
+    def __init__(self, model: str = "gemini-flash-latest", max_tokens: int | None = None) -> None:
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise KeyError("GEMINI_API_KEY environment variable is not set")
@@ -163,23 +174,33 @@ class GeminiProviderClient(ProviderClient):
         from google import genai
 
         self._model = model
+        self._max_output_tokens = max_tokens
         self._client = genai.Client(api_key=api_key)
 
     async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+        config: dict[str, object] = {"system_instruction": system_prompt}
+        if self._max_output_tokens is not None:
+            config["max_output_tokens"] = self._max_output_tokens
         response = await self._client.aio.models.generate_content(
             model=self._model,
             contents=user_prompt,
-            config={"system_instruction": system_prompt},
+            config=config,
         )
         if not response.text:
             raise RuntimeError("Gemini completion returned no content")
         return response.text
 
     async def complete_json(self, *, system_prompt: str, user_prompt: str) -> str:
+        config: dict[str, object] = {
+            "system_instruction": system_prompt,
+            "response_mime_type": "application/json",
+        }
+        if self._max_output_tokens is not None:
+            config["max_output_tokens"] = self._max_output_tokens
         response = await self._client.aio.models.generate_content(
             model=self._model,
             contents=user_prompt,
-            config={"system_instruction": system_prompt, "response_mime_type": "application/json"},
+            config=config,
         )
         if not response.text:
             raise RuntimeError("Gemini JSON completion returned no content")
@@ -264,13 +285,31 @@ _CLIENT_FACTORIES = {
 }
 
 
-def get_provider_client(provider: Provider, model: str | None = None) -> ProviderClient:
+_SUPPORTS_MAX_TOKENS = {
+    Provider.OPENAI,
+    Provider.GEMINI,
+    Provider.GROQ,
+    Provider.OPENROUTER,
+}
+
+
+def get_provider_client(
+    provider: Provider, model: str | None = None, max_tokens: int | None = None
+) -> ProviderClient:
     """`model` lets a use_case_policy pick a specific model tier (e.g. a
     small vs large Groq model) without providers.py needing to know about
     per-use-case tiering — the policy table stays the single source of truth
     for "which model handles this," per the module's routing-auditability
-    intent (see use_case_policy.py)."""
+    intent (see use_case_policy.py). `max_tokens` is the same idea for a
+    tier's output budget — only the OpenAI-compatible clients and Gemini
+    accept it; LiveKit Inference has no equivalent knob, so it's silently
+    ignored there rather than erroring on an unused override."""
     factory = _CLIENT_FACTORIES.get(provider)
     if factory is None:
         return _UnimplementedProviderClient(provider)
-    return factory(model) if model else factory()
+    kwargs: dict[str, object] = {}
+    if model:
+        kwargs["model"] = model
+    if max_tokens is not None and provider in _SUPPORTS_MAX_TOKENS:
+        kwargs["max_tokens"] = max_tokens
+    return factory(**kwargs)

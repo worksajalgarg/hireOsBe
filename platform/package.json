@@ -19,6 +19,8 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1106.0",
+    "@aws-sdk/s3-request-presigner": "^3.1106.0",
     "@livekit/protocol": "^1.50.4",
     "@nestjs/common": "^11.1.28",
     "@nestjs/core": "^11.1.28",
@@ -48,6 +50,7 @@
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.2.0",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.65.0",

@@ -12,9 +12,13 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       .replace(/&?sslmode=[^&]*/g, "")
       .replace(/\?$/, "");
 
+    // Local Postgres (docker-compose) doesn't support TLS at all; Neon
+    // (remote dev) requires it. Skip it only for loopback hosts so this
+    // still defaults safely to "on" everywhere else.
+    const isLocalHost = /^(localhost|127\.0\.0\.1)$/.test(new URL(cleanUrl).hostname);
     const pool = new pg.Pool({
       connectionString: cleanUrl,
-      ssl: { rejectUnauthorized: false },
+      ssl: isLocalHost ? false : { rejectUnauthorized: false },
     });
     super({ adapter: new PrismaPg(pool) });
   }

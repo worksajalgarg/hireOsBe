@@ -60,6 +60,8 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 platform platform123 &&
       mc mb -p local/interview-recordings &&
+      mc mb -p local/candidate-resumes &&
+      mc mb -p local/job-descriptions &&
       exit 0
       "
 

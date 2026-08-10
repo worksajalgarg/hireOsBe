@@ -37,11 +37,12 @@ class _AlwaysSucceedsClient:
 def test_structured_attempt_reports_one_retry_after_a_failed_first_try(monkeypatch) -> None:
     client = _FailThenSucceedClient()
     monkeypatch.setattr(
-        "app.model_gateway.gateway.get_provider_client", lambda provider, model=None: client
+        "app.model_gateway.gateway.get_provider_client",
+        lambda provider, model=None, max_tokens=None: client,
     )
     gateway = ModelGateway()
     parsed, retries_used = _run(
-        gateway._structured_attempt(Provider.GEMINI, None, "sys", "user", _Schema)
+        gateway._structured_attempt(Provider.GEMINI, None, None, "sys", "user", _Schema)
     )
     assert parsed is not None
     assert parsed.value == "ok"
@@ -53,11 +54,11 @@ def test_structured_attempt_reports_zero_retries_when_client_succeeds_immediatel
 ) -> None:
     monkeypatch.setattr(
         "app.model_gateway.gateway.get_provider_client",
-        lambda provider, model=None: _AlwaysSucceedsClient(),
+        lambda provider, model=None, max_tokens=None: _AlwaysSucceedsClient(),
     )
     gateway = ModelGateway()
     parsed, retries_used = _run(
-        gateway._structured_attempt(Provider.GEMINI, None, "sys", "user", _Schema)
+        gateway._structured_attempt(Provider.GEMINI, None, None, "sys", "user", _Schema)
     )
     assert parsed is not None
     assert retries_used == 0

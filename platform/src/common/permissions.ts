@@ -11,6 +11,15 @@ export const PERMISSIONS = {
   PROFILE_READ: "profile.read",
   PROFILE_WRITE: "profile.write",
   INTERVIEWS_MANAGE: "interviews.manage",
+  // Deliberately not reusing ROLES_READ/ROLES_WRITE (RBAC role management) —
+  // a job requisition is a different concept and granting those would
+  // silently widen access to the permission system itself.
+  JOBS_READ: "jobs.read",
+  JOBS_WRITE: "jobs.write",
+  CANDIDATES_READ: "candidates.read",
+  CANDIDATES_WRITE: "candidates.write",
+  RESUMES_READ: "resumes.read",
+  RESUMES_UPLOAD: "resumes.upload",
 } as const;
 
 export type PermissionSlug = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -32,6 +41,12 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
     PERMISSIONS.INTERVIEWS_MANAGE,
+    PERMISSIONS.JOBS_READ,
+    PERMISSIONS.JOBS_WRITE,
+    PERMISSIONS.CANDIDATES_READ,
+    PERMISSIONS.CANDIDATES_WRITE,
+    PERMISSIONS.RESUMES_READ,
+    PERMISSIONS.RESUMES_UPLOAD,
   ],
   [SYSTEM_ROLE_NAMES.HiringManager]: [
     PERMISSIONS.WORKSPACE_SETTINGS_READ,
@@ -40,6 +55,12 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
     PERMISSIONS.INTERVIEWS_MANAGE,
+    // Can advance a candidate through the pipeline; cannot create a
+    // requisition or upload resumes.
+    PERMISSIONS.JOBS_READ,
+    PERMISSIONS.CANDIDATES_READ,
+    PERMISSIONS.CANDIDATES_WRITE,
+    PERMISSIONS.RESUMES_READ,
   ],
   [SYSTEM_ROLE_NAMES.Auditor]: [
     PERMISSIONS.WORKSPACE_SETTINGS_READ,
@@ -48,6 +69,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.AUDIT_READ,
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
+    // No RESUMES_READ — reviewing decisions doesn't require raw candidate PII.
+    PERMISSIONS.JOBS_READ,
+    PERMISSIONS.CANDIDATES_READ,
   ],
 };
 

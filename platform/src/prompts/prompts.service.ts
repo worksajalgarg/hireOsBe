@@ -65,6 +65,18 @@ export class PromptsService implements OnModuleInit {
   }
 
   async listForTenant(tenantId: string): Promise<PromptRecord[]> {
+    if (this.delegate) {
+      return this.delegate.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: "desc" },
+      });
+    }
+    // Fallback raw-SQL path, kept in the same shape as getById/create/etc.
+    // Fixed two real bugs surfaced by prompt_templates.tenant_id becoming a
+    // proper UUID column: comparing it to the literal string 'system'
+    // crashed outright (invalid uuid syntax), and the trailing `OR true`
+    // made the whole WHERE clause always match — every tenant was seeing
+    // every other tenant's prompt templates.
     const rows = await this.prisma.$queryRaw<PromptRecord[]>`
       SELECT id, tenant_id as "tenantId", title, description, category,
              conversation_flow as "conversationFlow",
@@ -74,7 +86,7 @@ export class PromptsService implements OnModuleInit {
              is_default as "isDefault",
              created_at as "createdAt", updated_at as "updatedAt"
       FROM prompt_templates
-      WHERE tenant_id = ${tenantId} OR is_default = true OR tenant_id = 'system' OR true
+      WHERE tenant_id = ${tenantId} OR is_default = true
       ORDER BY created_at DESC
     `;
     return rows as PromptRecord[];

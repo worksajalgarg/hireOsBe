@@ -24,6 +24,7 @@ from .use_case_policy import ProviderChoice, UseCasePolicy
 REQUIRED_USE_CASES = (
     "role_intake_scorecard",
     "resume_parsing",
+    "role_parsing",
     "evidence_matching",
     "interview_evaluation",
     "candidate_report",
@@ -44,12 +45,11 @@ class ChainEntry(BaseModel):
     provider: str
     model: str
     # First-chunk timeout override for this tier — see ProviderChoice.timeout_s
-    # and gateway.py's _FIRST_CHUNK_TIMEOUT_S default. No max_tokens override
-    # exists yet: ProviderChoice/providers.py don't support one today (see
-    # _OpenAICompatibleClient's hardcoded default) — adding that is a
-    # separate, larger change to providers.py, out of scope for this
-    # behavior-preserving migration.
+    # and gateway.py's _FIRST_CHUNK_TIMEOUT_S default.
     timeout_s: float | None = None
+    # Output token budget override for this tier — see ProviderChoice.max_tokens.
+    # None means "use the client's default" (_OpenAICompatibleClient's 2048).
+    max_tokens: int | None = None
 
     @field_validator("provider")
     @classmethod
@@ -64,6 +64,13 @@ class ChainEntry(BaseModel):
     def _positive_timeout(cls, value: float | None) -> float | None:
         if value is not None and value <= 0:
             raise ValueError(f"timeout_s must be > 0, got {value}")
+        return value
+
+    @field_validator("max_tokens")
+    @classmethod
+    def _positive_max_tokens(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError(f"max_tokens must be > 0, got {value}")
         return value
 
 
@@ -131,6 +138,7 @@ def load_routing_config(path: Path) -> dict[str, UseCasePolicy]:
                     provider=Provider(choice.provider),
                     model=choice.model,
                     timeout_s=choice.timeout_s,
+                    max_tokens=choice.max_tokens,
                 )
                 for choice in entry.chain
             ],

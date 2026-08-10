@@ -32,15 +32,82 @@ role_intake_scorecard:
 
 resume_parsing:
   chain:
-    - provider: groq
-      model: llama-3.1-8b-instant
     - provider: gemini
       model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.1-8b-instant
+      max_tokens: 3200
   rationale: >
     Small/high-volume tier: structured extraction from a resume is well
-    within a small model's capability and runs per-candidate, so Groq's
-    small model (cheapest, fastest) is the primary; Gemini flash as
-    fallback for availability.
+    within a small model's capability and runs per-candidate — originally
+    Groq-first (cheapest, fastest) with Gemini flash as fallback, but
+    reordered to Gemini-first for now after real-resume testing this
+    session repeatedly showed Groq's 8B model needing 2 failed attempts
+    (TPM 413s, missing required fields, null-instead-of-omitted claims)
+    before falling through, while Gemini flash succeeded cleanly and
+    completely on the same document once its max_tokens override was
+    removed (see the max_tokens history below). Both are free-tier;
+    Gemini is simply the more reliable one in practice for this specific
+    use case's schema size. Revisit reordering back to Groq-first once its
+    quota/tier is upgraded for production, where latency/cost matter more
+    than raw reliability during iteration — this mirrors the same
+    trade-off already made for voice_interview_turn below.
+    Tried the free OpenRouter tier (nvidia/nemotron-3-nano-30b-a3b:free)
+    first, same as the voice/discovery use cases below — reverted after
+    real-world testing on a full-length JD returned a schema-valid but
+    completely empty extraction (no requirements, no responsibilities, no
+    unparsed_sections either), which the gateway's retry logic accepted as
+    a success since it only validates JSON shape, not whether anything was
+    actually extracted. Unlike a bad conversational turn (recoverable next
+    turn), a silently-empty extraction here has no recovery path except a
+    manual reparse — not an acceptable tradeoff for a free tier that isn't
+    reliable enough on long/dense real documents. Revisit only alongside a
+    content-quality check (e.g. reject an all-empty result and fall
+    through to the next tier), not on ordering alone.
+    max_tokens history: first bumped from the client default (2048) to
+    4096 after the schema grew to 11 fields — confirmed in practice on a
+    real ~4700-char, 4-job resume that education/certifications/projects/
+    awards/publications/languages (the fields the schema declares after
+    work_history/skills) came back fully empty while work_history/skills
+    were correctly populated, consistent with the model exhausting its
+    output budget partway through (the parser itself was verified to
+    extract the full document correctly, ruling out a parsing bug).
+    4096 turned out to be too aggressive for Groq specifically: this
+    model's on-demand tier has a 6000 TPM (tokens-per-minute) cap, and
+    input (~2200 tokens for that same resume) + max_tokens=4096 requested
+    6275 tokens, over the cap — a hard 413 on every attempt, worse than
+    the original empty-fields problem since now tier 1 fails outright.
+    3200 leaves headroom under 6000 TPM for realistic input sizes while
+    still being well above the original 2048 default. Gemini's max_tokens
+    override was removed entirely after the same real-resume test showed
+    it explicitly capped at 4096 to *below* its own prior unset default,
+    causing Gemini to truncate mid-JSON (a hard parse failure) where it
+    had previously returned valid (if content-incomplete) JSON with no
+    override at all — Gemini's un-set default is more generous than 4096
+    for this model, so it's intentionally left unset here.
+
+role_parsing:
+  chain:
+    - provider: gemini
+      model: gemini-flash-latest
+    - provider: groq
+      model: llama-3.1-8b-instant
+      max_tokens: 3200
+  rationale: >
+    Small/high-volume tier, same reasoning as resume_parsing: structured
+    extraction of requirements/responsibilities from a job description is
+    well within a small model's capability. Reordered to Gemini-first for
+    the same reliability reason as resume_parsing (see that entry's
+    rationale) — role_parsing's schema is smaller so Groq fares somewhat
+    better here, but Gemini-first keeps both use cases consistent while
+    Groq's small-model reliability is under question. Same free-tier
+    revert as resume_parsing above — confirmed broken on a real ~500-word
+    JD (returned a fully empty, schema-valid extraction). Same max_tokens
+    values as resume_parsing (3200 for Groq, unset for Gemini) for
+    consistency and the same reason: 4096 on Groq risks its 6000 TPM cap,
+    and an explicit Gemini cap can end up lower than its own unset
+    default — see resume_parsing's rationale for the real-request numbers
+    that showed both failure modes in practice.
 
 evidence_matching:
   chain:

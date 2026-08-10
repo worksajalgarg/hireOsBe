@@ -234,7 +234,7 @@ class ModelGateway:
                 continue
             start = time.monotonic()
             try:
-                client = get_provider_client(choice.provider, choice.model)
+                client = get_provider_client(choice.provider, choice.model, choice.max_tokens)
                 result = await client.complete(
                     system_prompt=system_prompt, user_prompt=user_prompt
                 )
@@ -296,7 +296,7 @@ class ModelGateway:
         for tier, choice in enumerate(policy.chain):
             start = time.monotonic()
             parsed, retries_used = await self._structured_attempt(
-                choice.provider, choice.model, system_prompt, user_prompt, schema
+                choice.provider, choice.model, choice.max_tokens, system_prompt, user_prompt, schema
             )
             if parsed is not None:
                 return parsed, choice, time.monotonic() - start, tier, retries_used
@@ -316,6 +316,7 @@ class ModelGateway:
         self,
         provider: Provider,
         model: str | None,
+        max_tokens: int | None,
         system_prompt: str,
         user_prompt: str,
         schema: type[_SchemaT],
@@ -329,7 +330,7 @@ class ModelGateway:
         if not circuit_breaker.is_available(provider):
             return None, 0
         try:
-            client = get_provider_client(provider, model)
+            client = get_provider_client(provider, model, max_tokens)
         except (KeyError, Exception) as exc:
             _handle_provider_exc(exc, provider)
             return None, 0
@@ -395,7 +396,7 @@ class ModelGateway:
         timeout_s = choice.timeout_s if choice.timeout_s is not None else _FIRST_CHUNK_TIMEOUT_S
         start = time.monotonic()
         try:
-            client = get_provider_client(choice.provider, choice.model)
+            client = get_provider_client(choice.provider, choice.model, choice.max_tokens)
         except (KeyError, Exception) as exc:
             _handle_provider_exc(exc, choice.provider)
             if tier + 1 < len(chain):

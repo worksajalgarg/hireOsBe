@@ -66,14 +66,15 @@ best-effort consolidation.
 """
 
 import asyncio
-import logging
-from dataclasses import dataclass
-import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
+import logging
+import time
 from typing import TypeVar
 
 from pydantic import BaseModel
 
+from app.config import get_settings
 from .circuit_breaker import circuit_breaker
 from .metrics_log import append_metric, is_dev_metrics_enabled
 from .providers import (
@@ -82,7 +83,6 @@ from .providers import (
     get_provider_client,
     is_llm_quota_error,
 )
-from app.config import get_settings
 from .use_case_policy import ProviderChoice, UseCasePolicy, get_policy
 
 logger = logging.getLogger("model_gateway")
@@ -253,10 +253,12 @@ class ModelGateway:
                 user_prompt=user_prompt,
                 max_tokens=max_tokens,
             )
+            known_modes = ("mock", "local", "gemini", "openrouter", "openai")
+            mode_name = mode if mode in known_modes else resolved.value
             return GatewayResult(
                 content=content,
                 provider=resolved.value,
-                model_name=_model_name(settings, mode if mode in ("mock", "local", "gemini", "openrouter", "openai") else resolved.value),
+                model_name=_model_name(settings, mode_name),
                 fallback_used=False,
             )
         except Exception as exc:

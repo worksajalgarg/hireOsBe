@@ -384,14 +384,18 @@ class OpenAIProviderClient(ProviderClient):
         get_settings.cache_clear()
         settings = get_settings()
         api_key = settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
+        base_url = (settings.openai_base_url or "").strip()
+        # OpenRouter mode often only has OPENROUTER_API_KEY set — reuse it when
+        # the configured base URL points at OpenRouter.
+        if not api_key and "openrouter.ai" in base_url.lower():
+            api_key = os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
             raise RuntimeError(
                 "OPENAI_API_KEY is not set. Add your OpenRouter (or OpenAI) key "
-                "to ai-service/.env"
+                "to ai-service/.env (or OPENROUTER_API_KEY when using OpenRouter)"
             )
 
         client_kwargs: dict[str, object] = {"api_key": api_key}
-        base_url = (settings.openai_base_url or "").strip()
         if base_url:
             client_kwargs["base_url"] = base_url
 

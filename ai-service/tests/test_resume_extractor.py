@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+
 import pytest
 from pydantic import ValidationError
 
 from app.agents.resume_extractor.normalize import normalize_text
 from app.agents.resume_extractor.schemas import ResumeJSON
 from app.agents.resume_extractor.service import (
+    _extract_valid_chunk,
     _parse_json_object,
     merge_resume_chunks,
     split_resume_text,
@@ -17,6 +21,7 @@ from app.agents.resume_extractor.validation import (
     validate_file_signature,
     validate_upload,
 )
+from app.model_gateway.gateway import GatewayResult
 
 
 def test_validate_upload_rejects_unsupported_extension() -> None:
@@ -216,3 +221,36 @@ def test_merge_keeps_all_roles_and_deduplicates_overlap() -> None:
     assert len(merged.experience) == 2
     assert merged.experience[0].highlights == ["Built API", "Led migration"]
     assert merged.skills == ["Python", "PostgreSQL"]
+
+
+def test_extract_valid_chunk_shrinks_and_retries_on_context_length_error(monkeypatch) -> None:
+    """A genuine provider context-length error on an oversized chunk should
+    split it in half and merge the two halves' results, not just bubble up
+    a raw provider error — the safety net behind safe_chunk_chars's
+    proactive sizing (model_limits.py)."""
+    calls: list[str] = []
+
+    async def fake_run_detailed(*, use_case, system_prompt, user_prompt, max_tokens=None):
+        # user_prompt wraps the chunk in a <resume_source> tag (build_user_prompt).
+        chunk_text = user_prompt.split("chunk=")[-1]
+        calls.append(chunk_text)
+        if len(calls) == 1:
+            raise RuntimeError("Error: context_length_exceeded for this request")
+        payload = json.dumps(
+            {"skills": ["Python"]} if "Python" in user_prompt else {"skills": ["Go"]}
+        )
+        return GatewayResult(
+            content=payload, provider="test", model_name="test-model", fallback_used=False
+        )
+
+    monkeypatch.setattr(
+        "app.agents.resume_extractor.service.model_gateway.run_detailed", fake_run_detailed
+    )
+
+    big_chunk = "Python developer with experience.\n\n" + "Go engineer background.\n\n" * 100
+    resume, result = asyncio.run(
+        _extract_valid_chunk(big_chunk, chunk_index=1, chunk_count=1)
+    )
+    assert len(calls) == 3  # 1 failed full-size attempt + 2 half-size retries
+    assert result.model_name == "test-model"
+    assert "Python" in resume.skills or "Go" in resume.skills

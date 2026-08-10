@@ -10,8 +10,9 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.config import get_settings
-from app.model_gateway.gateway import GatewayResult, model_gateway
+from app.model_gateway.gateway import GatewayResult, current_model_name, model_gateway
 
+from .model_limits import is_context_length_error, safe_chunk_chars
 from .prompts import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
@@ -19,6 +20,15 @@ from .prompts import (
     build_user_prompt,
 )
 from .schemas import ExtractionMetadata, ResumeJSON
+
+# Settings.openai_max_tokens defaults to 512 (deliberately low for other,
+# smaller use cases — see config.py's comment). ResumeJSON's real shape
+# (experience/education/skills/projects/certifications/awards/publications/
+# etc., each item carrying an evidence quote) needs much more room —
+# confirmed in practice: 512 produced an empty completion on a real resume,
+# which surfaces as a confusing "invalid JSON" error rather than an obvious
+# token-budget one.
+_RESUME_EXTRACTION_MAX_TOKENS = 4096
 
 
 @dataclass(frozen=True)
@@ -90,11 +100,39 @@ async def _extract_valid_chunk(
     chunk: str, *, chunk_index: int, chunk_count: int
 ) -> tuple[ResumeJSON, GatewayResult]:
     prompt = build_user_prompt(chunk, chunk_index=chunk_index, chunk_count=chunk_count)
-    result = await model_gateway.run_detailed(
-        use_case="resume_parsing",
-        system_prompt=SYSTEM_PROMPT,
-        user_prompt=prompt,
-    )
+    try:
+        result = await model_gateway.run_detailed(
+            use_case="resume_parsing",
+            system_prompt=SYSTEM_PROMPT,
+            user_prompt=prompt,
+            max_tokens=_RESUME_EXTRACTION_MAX_TOKENS,
+        )
+    except Exception as exc:
+        if is_context_length_error(exc) and len(chunk) > 2000:
+            # Last-resort safety net: extract_resume_json's proactive sizing
+            # (safe_chunk_chars) should prevent this in the normal case, but
+            # a token-estimate heuristic can be wrong for unusual text (dense
+            # non-English content, code blocks). Split this one chunk in
+            # half and merge — reuses the same deterministic merge already
+            # used for top-level chunks, so no LLM is asked to reconcile
+            # facts across the split.
+            mid = len(chunk) // 2
+            split_point = chunk.rfind("\n\n", 0, mid)
+            if split_point <= 0:
+                split_point = mid
+            left, right = chunk[:split_point].strip(), chunk[split_point:].strip()
+            left_resume, left_result = await _extract_valid_chunk(
+                left, chunk_index=chunk_index, chunk_count=chunk_count
+            )
+            right_resume, right_result = await _extract_valid_chunk(
+                right, chunk_index=chunk_index, chunk_count=chunk_count
+            )
+            merged = merge_resume_chunks([left_resume, right_resume])
+            # Prefer the second call's provider/model for reporting — both
+            # halves used the same configured provider either way.
+            return merged, right_result
+        raise
+
     if result.fallback_used:
         raise RuntimeError(
             "The configured model failed and returned development mock data; "
@@ -109,6 +147,7 @@ async def _extract_valid_chunk(
             use_case="resume_parsing",
             system_prompt=SYSTEM_PROMPT,
             user_prompt=build_correction_prompt(result.content, str(first_error)),
+            max_tokens=_RESUME_EXTRACTION_MAX_TOKENS,
         )
         if correction.fallback_used:
             raise RuntimeError("Structured-output correction fell back to mock data")
@@ -226,9 +265,23 @@ async def extract_resume_json(
     used_ocr_fallback: bool,
 ) -> ExtractionResult:
     settings = get_settings()
+    # Size chunks to the model actually configured right now, not just the
+    # static config default — a chunk that fits Gemini's 1M-token window
+    # comfortably could still be too large for a smaller local/free model.
+    # Computed once per extraction (all chunks use the same model).
+    fixed_prompt_chars = len(SYSTEM_PROMPT) + 300  # build_user_prompt's own wrapper text
+    model_for_sizing = current_model_name("resume_parsing")
+    max_chars = min(
+        settings.resume_llm_chunk_chars,
+        safe_chunk_chars(
+            model_name=model_for_sizing,
+            fixed_prompt_chars=fixed_prompt_chars,
+            max_output_tokens=_RESUME_EXTRACTION_MAX_TOKENS,
+        ),
+    )
     chunks = split_resume_text(
         normalized_text,
-        max_chars=settings.resume_llm_chunk_chars,
+        max_chars=max_chars,
         max_chunks=settings.resume_llm_max_chunks,
     )
     if not chunks:

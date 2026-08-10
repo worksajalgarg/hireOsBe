@@ -231,6 +231,12 @@ model Resume {
   status             ResumeStatus @default(UPLOADED)
   extractedJson      Json?        @map("extracted_json")
   workingJson        Json?        @map("working_json")
+  /// Set only when a recruiter explicitly edits workingJson via
+  /// PATCH /resumes/:id (updateWorkingJson) — distinguishes a genuine human
+  /// edit from workingJson merely being auto-seeded by the first extraction
+  /// attempt (which may have been a broken/garbled parse). Only a genuine
+  /// edit should block a later re-extraction from refreshing workingJson.
+  workingJsonEditedAt DateTime?   @map("working_json_edited_at")
   parseSource        String?      @map("parse_source")
   errorMessage       String?      @map("error_message")
   createdAt          DateTime     @default(now()) @map("created_at")

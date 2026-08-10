@@ -23,7 +23,9 @@ def test_gateway_selects_local_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 
     captured: dict[str, str] = {}
 
-    async def fake_complete(self, *, system_prompt: str, user_prompt: str) -> str:
+    async def fake_complete(
+        self, *, system_prompt: str, user_prompt: str, max_tokens: int | None = None
+    ) -> str:
         captured["system"] = system_prompt
         captured["user"] = user_prompt
         return (

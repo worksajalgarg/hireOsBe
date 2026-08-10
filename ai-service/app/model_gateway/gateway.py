@@ -21,9 +21,19 @@ from .use_case_policy import get_policy
 
 class ModelGateway:
     async def run_detailed(
-        self, *, use_case: str, system_prompt: str, user_prompt: str
+        self,
+        *,
+        use_case: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int | None = None,
     ) -> "GatewayResult":
-        """Run a completion and retain auditable provider/fallback information."""
+        """Run a completion and retain auditable provider/fallback information.
+
+        max_tokens overrides the global Settings.openai_max_tokens default for
+        this call only — needed because that default (512) is far too small
+        for some use cases (e.g. resume_parsing's ResumeJSON output) while
+        being appropriate elsewhere; None keeps the existing global default."""
         get_settings.cache_clear()
         settings = get_settings()
         mode = (settings.llm_mode or "mock").strip().lower()
@@ -43,6 +53,7 @@ class ModelGateway:
             content = await client.complete(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                max_tokens=max_tokens,
             )
             return GatewayResult(
                 content=content,
@@ -68,6 +79,7 @@ class ModelGateway:
                 content = await mock.complete(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
+                    max_tokens=max_tokens,
                 )
                 return GatewayResult(
                     content=content,
@@ -77,11 +89,19 @@ class ModelGateway:
                 )
             raise
 
-    async def run(self, *, use_case: str, system_prompt: str, user_prompt: str) -> str:
+    async def run(
+        self,
+        *,
+        use_case: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int | None = None,
+    ) -> str:
         result = await self.run_detailed(
             use_case=use_case,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
+            max_tokens=max_tokens,
         )
         return result.content
 
@@ -92,6 +112,22 @@ class GatewayResult:
     provider: str
     model_name: str
     fallback_used: bool
+
+
+def current_model_name(use_case: str) -> str:
+    """Resolves which model will actually handle this use case right now,
+    without making a call — lets a caller (e.g. resume_extractor's chunk
+    sizing) size its prompt to the real model's context window instead of
+    a static guess. Mirrors run_detailed's own mode resolution."""
+    get_settings.cache_clear()
+    settings = get_settings()
+    mode = (settings.llm_mode or "mock").strip().lower()
+    if mode not in ("mock", "local", "gemini", "openrouter", "openai"):
+        try:
+            mode = get_policy(use_case).primary.value
+        except KeyError:
+            pass
+    return _model_name(settings, mode)
 
 
 def _model_name(settings, mode: str) -> str:

@@ -201,6 +201,7 @@ export class ResumesService {
         where: { id },
         data: {
           workingJson: workingJson as Prisma.InputJsonValue,
+          workingJsonEditedAt: new Date(),
           status: ResumeStatus.EDITED,
           errorMessage: null,
         },
@@ -259,15 +260,23 @@ export class ResumesService {
     return this.prisma.withTenant(tenantId, async (tx) => {
       const existing = await tx.resume.findFirst({ where: { id, tenantId } });
       if (!existing) throw new NotFoundException(`Resume ${id} not found`);
+      // Only a genuine recruiter edit (workingJsonEditedAt set — see
+      // updateWorkingJson) should survive a re-extraction; workingJson
+      // merely being non-null isn't enough, since the very first extraction
+      // attempt auto-seeds it even if that attempt was a broken/garbled
+      // parse. Without this distinction, a bad first parse permanently
+      // froze workingJson (and the EDITED status) even though no human had
+      // ever touched it — confirmed in practice against a real resume.
+      const hasGenuineEdit = existing.workingJsonEditedAt !== null;
       return tx.resume.update({
         where: { id },
         data: {
           extractedJson: payload.resumeJson as Prisma.InputJsonValue,
-          // Preserve recruiter edits when a resume is re-extracted.
-          workingJson:
-            existing.workingJson ?? (payload.resumeJson as Prisma.InputJsonValue),
+          workingJson: hasGenuineEdit
+            ? (existing.workingJson as Prisma.InputJsonValue)
+            : (payload.resumeJson as Prisma.InputJsonValue),
           parseSource: payload.parseSource ?? null,
-          status: existing.workingJson ? ResumeStatus.EDITED : ResumeStatus.EXTRACTED,
+          status: hasGenuineEdit ? ResumeStatus.EDITED : ResumeStatus.EXTRACTED,
           errorMessage: null,
         },
       });

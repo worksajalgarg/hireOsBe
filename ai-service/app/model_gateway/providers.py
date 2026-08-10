@@ -29,7 +29,9 @@ class ProviderClient:
     def __init__(self, provider: Provider):
         self.provider = provider
 
-    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+    async def complete(
+        self, *, system_prompt: str, user_prompt: str, max_tokens: int | None = None
+    ) -> str:
         raise NotImplementedError(
             f"Provider '{self.provider.value}' is not wired up yet — "
             "Sprint 1 scaffold only defines the gateway boundary."
@@ -43,7 +45,9 @@ class MockProviderClient(ProviderClient):
         super().__init__(Provider.MOCK)
         self.fallback_reason = fallback_reason
 
-    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+    async def complete(
+        self, *, system_prompt: str, user_prompt: str, max_tokens: int | None = None
+    ) -> str:
         body = user_prompt
         if "---" in user_prompt:
             parts = user_prompt.split("---")
@@ -127,7 +131,9 @@ class OpenAIProviderClient(ProviderClient):
     def __init__(self) -> None:
         super().__init__(Provider.OPENAI)
 
-    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+    async def complete(
+        self, *, system_prompt: str, user_prompt: str, max_tokens: int | None = None
+    ) -> str:
         from openai import AsyncOpenAI
 
         get_settings.cache_clear()
@@ -148,7 +154,7 @@ class OpenAIProviderClient(ProviderClient):
         response = await client.chat.completions.create(
             model=settings.openai_model,
             temperature=0,
-            max_tokens=settings.openai_max_tokens,
+            max_tokens=max_tokens if max_tokens is not None else settings.openai_max_tokens,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -165,7 +171,9 @@ class GeminiProviderClient(ProviderClient):
     def __init__(self) -> None:
         super().__init__(Provider.GEMINI)
 
-    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+    async def complete(
+        self, *, system_prompt: str, user_prompt: str, max_tokens: int | None = None
+    ) -> str:
         import google.generativeai as genai
 
         get_settings.cache_clear()
@@ -183,7 +191,9 @@ class GeminiProviderClient(ProviderClient):
             system_instruction=system_prompt,
             generation_config={
                 "temperature": 0,
-                "max_output_tokens": settings.openai_max_tokens,
+                "max_output_tokens": (
+                    max_tokens if max_tokens is not None else settings.openai_max_tokens
+                ),
                 "response_mime_type": "application/json",
             },
         )
@@ -315,7 +325,12 @@ class LocalTransformersProviderClient(ProviderClient):
     def __init__(self) -> None:
         super().__init__(Provider.LOCAL)
 
-    async def complete(self, *, system_prompt: str, user_prompt: str) -> str:
+    async def complete(
+        self, *, system_prompt: str, user_prompt: str, max_tokens: int | None = None
+    ) -> str:
+        # max_tokens intentionally unused here — local generation budget is
+        # local_llm_max_new_tokens (a separate setting; the two aren't
+        # comparable units the way provider max_tokens is).
         return await asyncio.to_thread(
             _generate_local_sync,
             system_prompt=system_prompt,

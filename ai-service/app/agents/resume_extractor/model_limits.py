@@ -31,14 +31,54 @@ _CONTEXT_WINDOWS: dict[str, int] = {
     "Qwen/Qwen2.5-0.5B-Instruct": 32_000,
 }
 _DEFAULT_CONTEXT_WINDOW = 8_000
+
+# Largest completion a model will actually emit in one call. Distinct from the
+# context window: an under-budgeted completion truncates the JSON mid-object,
+# which then only survives as the prefix the correction pass can salvage —
+# silently dropping every section after the cut (see service.py).
+_MAX_OUTPUT_TOKENS: dict[str, int] = {
+    "gpt-4o-mini": 16_384,
+    "gpt-4o": 16_384,
+    "gpt-4.1-mini": 32_768,
+    "gemini-2.0-flash-lite": 8_192,
+    "gemini-1.5-flash": 8_192,
+    "gemini-flash-latest": 8_192,
+    "nvidia/nemotron-3-nano-30b-a3b:free": 8_192,
+    "meta-llama/llama-3.3-70b-instruct": 8_192,
+    "meta-llama/llama-3.3-70b-instruct:free": 8_192,
+    "Qwen/Qwen2.5-3B-Instruct": 4_096,
+    "Qwen/Qwen2.5-0.5B-Instruct": 4_096,
+}
+_DEFAULT_MAX_OUTPUT_TOKENS = 4_096
 # Keep 10% headroom below the nominal window — the char/4 heuristic isn't
 # exact, and providers sometimes count a few tokens of call overhead too.
 _SAFETY_MARGIN = 0.9
 _MIN_CHUNK_CHARS = 500
 
 
+def _lookup(table: dict[str, int], model_name: str, default: int) -> int:
+    """Exact match first, then again without the provider prefix.
+
+    OpenRouter addresses the same model as "openai/gpt-4o-mini" while the
+    tables key it as "gpt-4o-mini"; without this the model reads as unknown
+    and falls back to the deliberately small defaults.
+    """
+    name = (model_name or "").strip()
+    if name in table:
+        return table[name]
+    if "/" in name:
+        suffix = name.split("/", 1)[1]
+        if suffix in table:
+            return table[suffix]
+    return default
+
+
 def context_window_for(model_name: str) -> int:
-    return _CONTEXT_WINDOWS.get(model_name, _DEFAULT_CONTEXT_WINDOW)
+    return _lookup(_CONTEXT_WINDOWS, model_name, _DEFAULT_CONTEXT_WINDOW)
+
+
+def max_output_tokens_for(model_name: str) -> int:
+    return _lookup(_MAX_OUTPUT_TOKENS, model_name, _DEFAULT_MAX_OUTPUT_TOKENS)
 
 
 def estimate_tokens(text: str) -> int:

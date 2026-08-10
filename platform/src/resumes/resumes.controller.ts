@@ -195,10 +195,17 @@ export class ResumesController {
         const parts = bufferText.split("\n\n");
         bufferText = parts.pop() ?? "";
         for (const part of parts) {
-          const dataLine = part.split("\n").find((l) => l.startsWith("data:"));
-          if (!dataLine) continue;
+          // Join every data: line in the frame (SSE allows multi-line payloads).
+          // Using only the first line dropped oversized final_json events and left
+          // working_json null even though the FE timeline showed Final JSON.
+          const dataPayload = part
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trimStart())
+            .join("\n");
+          if (!dataPayload) continue;
           try {
-            const event = JSON.parse(dataLine.slice(5).trim()) as {
+            const event = JSON.parse(dataPayload) as {
               stage?: string;
               status?: string;
               message?: string;
@@ -213,7 +220,7 @@ export class ResumesController {
             }
             if (event.stage === "final_json" && event.status === "success") {
               const resumeJson = event.data?.resume;
-              if (resumeJson && typeof resumeJson === "object") {
+              if (resumeJson && typeof resumeJson === "object" && !Array.isArray(resumeJson)) {
                 finalResume = resumeJson as Record<string, unknown>;
               }
             }

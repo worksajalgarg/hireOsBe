@@ -26,7 +26,9 @@ class Settings(BaseSettings):
     openai_base_url: str = ""
     openai_model: str = "gpt-4o-mini"
     # Cap completion size (OpenRouter free/low credit accounts reject high defaults).
-    openai_max_tokens: int = Field(default=512, ge=64, le=8192)
+    # Resume extraction overrides this per-call from model_limits; the ceiling
+    # only needs to leave room for the largest model addressed here.
+    openai_max_tokens: int = Field(default=512, ge=64, le=32_768)
     # mock | openrouter | gemini | local
     llm_mode: str = "mock"
     gemini_model: str = "gemini-2.0-flash-lite"

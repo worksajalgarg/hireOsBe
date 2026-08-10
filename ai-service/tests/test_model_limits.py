@@ -6,6 +6,7 @@ from app.agents.resume_extractor.model_limits import (
     context_window_for,
     estimate_tokens,
     is_context_length_error,
+    max_output_tokens_for,
     safe_chunk_chars,
 )
 
@@ -16,6 +17,27 @@ def test_context_window_for_known_model_returns_its_real_window() -> None:
 
 def test_context_window_for_unknown_model_uses_conservative_default() -> None:
     assert context_window_for("some-brand-new-model-2027") == 8_000
+
+
+def test_context_window_for_strips_openrouter_provider_prefix() -> None:
+    """OpenRouter addresses the model as "openai/gpt-4o-mini"; treating that
+    as unknown silently shrinks every chunk to the 8k-window default."""
+    assert context_window_for("openai/gpt-4o-mini") == context_window_for("gpt-4o-mini")
+
+
+def test_context_window_for_prefers_an_exact_match_over_prefix_stripping() -> None:
+    assert context_window_for("Qwen/Qwen2.5-3B-Instruct") == 32_000
+
+
+def test_max_output_tokens_for_known_model_exceeds_the_default_floor() -> None:
+    """An under-budgeted completion truncates the JSON mid-object, and the
+    correction pass can only rebuild the surviving prefix."""
+    assert max_output_tokens_for("openai/gpt-4o-mini") == 16_384
+    assert max_output_tokens_for("gpt-4o-mini") == 16_384
+
+
+def test_max_output_tokens_for_unknown_model_uses_conservative_default() -> None:
+    assert max_output_tokens_for("some-brand-new-model-2027") == 4_096
 
 
 def test_estimate_tokens_never_returns_zero_for_nonempty_text() -> None:

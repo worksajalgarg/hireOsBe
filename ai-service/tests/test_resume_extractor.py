@@ -9,6 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.agents.resume_extractor.normalize import normalize_text
+from app.agents.resume_extractor.prompts import _EXAMPLE_JSON
 from app.agents.resume_extractor.schemas import ResumeJSON
 from app.agents.resume_extractor.service import (
     _extract_valid_chunk,
@@ -22,6 +23,33 @@ from app.agents.resume_extractor.validation import (
     validate_upload,
 )
 from app.model_gateway.gateway import GatewayResult
+
+
+def test_prompt_example_validates_against_the_strict_schema() -> None:
+    """The example is the only shape spec the model gets, so anything it shows
+    must be accepted by ResumeJSON — a key that looks right but isn't on the
+    model class makes strict validation drop the whole item."""
+    ResumeJSON.model_validate(json.loads(_EXAMPLE_JSON))
+
+
+def test_prompt_example_populates_every_list_section() -> None:
+    """An empty array teaches the model nothing about that item's field names;
+    it then invents keys (organization/role/start_date on volunteering) that
+    extra="forbid" rejects, so the section comes back empty."""
+    example = json.loads(_EXAMPLE_JSON)
+    for section in (
+        "experience",
+        "education",
+        "projects",
+        "certifications",
+        "awards",
+        "publications",
+        "volunteering",
+        "languages",
+        "additional_sections",
+        "verification_topics",
+    ):
+        assert example[section], f"{section} must show at least one worked item"
 
 
 def test_validate_upload_rejects_unsupported_extension() -> None:
@@ -249,7 +277,9 @@ def test_extract_valid_chunk_shrinks_and_retries_on_context_length_error(monkeyp
 
     big_chunk = "Python developer with experience.\n\n" + "Go engineer background.\n\n" * 100
     resume, result = asyncio.run(
-        _extract_valid_chunk(big_chunk, chunk_index=1, chunk_count=1)
+        _extract_valid_chunk(
+            big_chunk, chunk_index=1, chunk_count=1, max_output_tokens=4096
+        )
     )
     assert len(calls) == 3  # 1 failed full-size attempt + 2 half-size retries
     assert result.model_name == "test-model"

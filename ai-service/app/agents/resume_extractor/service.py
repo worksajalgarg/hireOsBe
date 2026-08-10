@@ -12,7 +12,11 @@ from pydantic import ValidationError
 from app.config import get_settings
 from app.model_gateway.gateway import GatewayResult, current_model_name, model_gateway
 
-from .model_limits import is_context_length_error, safe_chunk_chars
+from .model_limits import (
+    is_context_length_error,
+    max_output_tokens_for,
+    safe_chunk_chars,
+)
 from .prompts import (
     PROMPT_VERSION,
     SYSTEM_PROMPT,
@@ -28,6 +32,12 @@ from .schemas import ExtractionMetadata, ResumeJSON
 # confirmed in practice: 512 produced an empty completion on a real resume,
 # which surfaces as a confusing "invalid JSON" error rather than an obvious
 # token-budget one.
+#
+# Floor only. The real budget comes from max_output_tokens_for(model) — a flat
+# 4096 truncated a dense but ordinary resume mid-JSON, and since the schema is
+# emitted in a fixed field order, the correction pass could only rebuild the
+# surviving prefix and filled every later section (projects, certifications,
+# awards, publications, volunteering, languages) with [].
 _RESUME_EXTRACTION_MAX_TOKENS = 4096
 
 
@@ -97,7 +107,7 @@ def split_resume_text(text: str, *, max_chars: int, max_chunks: int) -> list[str
 
 
 async def _extract_valid_chunk(
-    chunk: str, *, chunk_index: int, chunk_count: int
+    chunk: str, *, chunk_index: int, chunk_count: int, max_output_tokens: int
 ) -> tuple[ResumeJSON, GatewayResult]:
     prompt = build_user_prompt(chunk, chunk_index=chunk_index, chunk_count=chunk_count)
     try:
@@ -105,7 +115,7 @@ async def _extract_valid_chunk(
             use_case="resume_parsing",
             system_prompt=SYSTEM_PROMPT,
             user_prompt=prompt,
-            max_tokens=_RESUME_EXTRACTION_MAX_TOKENS,
+            max_tokens=max_output_tokens,
         )
     except Exception as exc:
         if is_context_length_error(exc) and len(chunk) > 2000:
@@ -122,10 +132,16 @@ async def _extract_valid_chunk(
                 split_point = mid
             left, right = chunk[:split_point].strip(), chunk[split_point:].strip()
             left_resume, left_result = await _extract_valid_chunk(
-                left, chunk_index=chunk_index, chunk_count=chunk_count
+                left,
+                chunk_index=chunk_index,
+                chunk_count=chunk_count,
+                max_output_tokens=max_output_tokens,
             )
             right_resume, right_result = await _extract_valid_chunk(
-                right, chunk_index=chunk_index, chunk_count=chunk_count
+                right,
+                chunk_index=chunk_index,
+                chunk_count=chunk_count,
+                max_output_tokens=max_output_tokens,
             )
             merged = merge_resume_chunks([left_resume, right_resume])
             # Prefer the second call's provider/model for reporting — both
@@ -147,7 +163,7 @@ async def _extract_valid_chunk(
             use_case="resume_parsing",
             system_prompt=SYSTEM_PROMPT,
             user_prompt=build_correction_prompt(result.content, str(first_error)),
-            max_tokens=_RESUME_EXTRACTION_MAX_TOKENS,
+            max_tokens=max_output_tokens,
         )
         if correction.fallback_used:
             raise RuntimeError("Structured-output correction fell back to mock data")
@@ -271,12 +287,16 @@ async def extract_resume_json(
     # Computed once per extraction (all chunks use the same model).
     fixed_prompt_chars = len(SYSTEM_PROMPT) + 300  # build_user_prompt's own wrapper text
     model_for_sizing = current_model_name("resume_parsing")
+    max_output_tokens = max(
+        _RESUME_EXTRACTION_MAX_TOKENS,
+        max_output_tokens_for(model_for_sizing),
+    )
     max_chars = min(
         settings.resume_llm_chunk_chars,
         safe_chunk_chars(
             model_name=model_for_sizing,
             fixed_prompt_chars=fixed_prompt_chars,
-            max_output_tokens=_RESUME_EXTRACTION_MAX_TOKENS,
+            max_output_tokens=max_output_tokens,
         ),
     )
     chunks = split_resume_text(
@@ -297,6 +317,7 @@ async def extract_resume_json(
             chunk,
             chunk_index=index,
             chunk_count=len(chunks),
+            max_output_tokens=max_output_tokens,
         )
         resumes.append(resume)
         raw_outputs.append(result.content)

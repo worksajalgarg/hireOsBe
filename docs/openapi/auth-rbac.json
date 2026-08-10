@@ -630,6 +630,179 @@
         ]
       }
     },
+    "/api/v1/resumes": {
+      "post": {
+        "operationId": "ResumesController_upload",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      },
+      "get": {
+        "operationId": "ResumesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
+    "/api/v1/resumes/{id}": {
+      "get": {
+        "operationId": "ResumesController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      },
+      "patch": {
+        "operationId": "ResumesController_updateWorkingJson",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateResumeWorkingJsonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      },
+      "delete": {
+        "operationId": "ResumesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
+    "/api/v1/resumes/{id}/extract": {
+      "post": {
+        "operationId": "ResumesController_extract",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "resumes"
+        ]
+      }
+    },
     "/api/v1/workflow/_stub": {
       "get": {
         "operationId": "WorkflowController_stub",
@@ -986,6 +1159,10 @@
         "properties": {}
       },
       "CreateRoleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateResumeWorkingJsonDto": {
         "type": "object",
         "properties": {}
       },

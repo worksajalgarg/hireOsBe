@@ -1,13 +1,30 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "./prisma.service";
-import { SYSTEM_ROLE_NAMES, SYSTEM_ROLE_PERMISSIONS } from "./permissions";
+import {
+  PERMISSION_META,
+  PERMISSIONS,
+  SYSTEM_ROLE_NAMES,
+  SYSTEM_ROLE_PERMISSIONS,
+} from "./permissions";
 
 @Injectable()
 export class RbacSeedService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async ensurePermissions() {
+    for (const slug of Object.values(PERMISSIONS)) {
+      const meta = PERMISSION_META[slug];
+      await this.prisma.permission.upsert({
+        where: { slug },
+        create: { slug, module: meta.module, description: meta.description },
+        update: { module: meta.module, description: meta.description },
+      });
+    }
+  }
+
   /** Create Admin / Recruiter / Hiring Manager / Auditor roles + grants for a tenant. */
   async seedSystemRolesForTenant(tenantId: string) {
+    await this.ensurePermissions();
     const permissions = await this.prisma.permission.findMany();
     const bySlug = new Map(permissions.map((p) => [p.slug, p.id]));
 

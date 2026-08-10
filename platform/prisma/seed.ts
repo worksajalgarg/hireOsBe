@@ -8,6 +8,7 @@ import { PrismaClient } from "@prisma/client";
 import * as argon2 from "argon2";
 import pg from "pg";
 import {
+  PERMISSION_META,
   PERMISSIONS,
   SYSTEM_ROLE_NAMES,
   SYSTEM_ROLE_PERMISSIONS,
@@ -27,16 +28,18 @@ const pool = new pg.Pool({
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-async function seedSystemRoles(tenantId: string) {
+async function seedPermissions() {
   for (const slug of Object.values(PERMISSIONS)) {
-    const moduleName = slug.split(".")[0] || "system";
+    const meta = PERMISSION_META[slug];
     await prisma.permission.upsert({
       where: { slug },
-      create: { slug, module: moduleName, description: `${slug} permission` },
-      update: {},
+      create: { slug, module: meta.module, description: meta.description },
+      update: { module: meta.module, description: meta.description },
     });
   }
+}
 
+async function seedSystemRoles(tenantId: string) {
   const permissions = await prisma.permission.findMany();
   const bySlug = new Map(permissions.map((p) => [p.slug, p.id]));
 
@@ -80,6 +83,7 @@ async function main() {
     update: {},
   });
 
+  await seedPermissions();
   await seedSystemRoles(tenant.id);
 
   const passwordHash = await argon2.hash(password);

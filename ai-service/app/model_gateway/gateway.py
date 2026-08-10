@@ -69,13 +69,21 @@ import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import TypeVar
 
 from pydantic import BaseModel
 
+from app.config import get_settings
+
 from .circuit_breaker import circuit_breaker
 from .metrics_log import append_metric, is_dev_metrics_enabled
-from .providers import Provider, get_provider_client
+from .providers import (
+    MockProviderClient,
+    Provider,
+    get_provider_client,
+    is_llm_quota_error,
+)
 from .use_case_policy import ProviderChoice, UseCasePolicy, get_policy
 
 logger = logging.getLogger("model_gateway")
@@ -173,7 +181,115 @@ def _handle_provider_exc(exc: Exception, provider: Provider) -> None:
     circuit_breaker.record_failure(provider)
 
 
+
+@dataclass(frozen=True)
+class GatewayResult:
+    content: str
+    provider: str
+    model_name: str
+    fallback_used: bool
+
+
+def _model_name(settings, mode: str) -> str:
+    if mode == "local":
+        return settings.local_llm_model
+    if mode == "gemini":
+        return settings.gemini_model
+    if mode in ("openrouter", "openai"):
+        return settings.openai_model
+    return mode
+
+
+def current_model_name(use_case: str) -> str:
+    """Resolves which model will handle this use case for resume sizing."""
+    get_settings.cache_clear()
+    settings = get_settings()
+    mode = (settings.llm_mode or "mock").strip().lower()
+    if mode not in ("mock", "local", "gemini", "openrouter", "openai"):
+        try:
+            mode = get_policy(use_case).primary.value
+        except Exception:
+            try:
+                mode = get_policy(use_case).chain[0].provider.value
+            except Exception:
+                pass
+    return _model_name(settings, mode)
+
+
 class ModelGateway:
+
+    async def run_detailed(
+        self,
+        *,
+        use_case: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int | None = None,
+    ) -> "GatewayResult":
+        """Resume-extractor path: LLM_MODE override + optional mock fallback."""
+        get_settings.cache_clear()
+        settings = get_settings()
+        mode = (settings.llm_mode or "mock").strip().lower()
+        if mode == "mock":
+            client = get_provider_client(Provider.MOCK)
+            resolved = Provider.MOCK
+        elif mode == "local":
+            client = get_provider_client(Provider.LOCAL)
+            resolved = Provider.LOCAL
+        elif mode == "gemini":
+            client = get_provider_client(Provider.GEMINI)
+            resolved = Provider.GEMINI
+        elif mode in ("openrouter", "openai"):
+            client = get_provider_client(Provider.OPENAI)
+            resolved = Provider.OPENAI
+        else:
+            policy = get_policy(use_case)
+            choice = policy.chain[0]
+            client = get_provider_client(choice.provider, choice.model)
+            resolved = choice.provider
+
+        try:
+            content = await client.complete(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens,
+            )
+            known_modes = ("mock", "local", "gemini", "openrouter", "openai")
+            mode_name = mode if mode in known_modes else resolved.value
+            return GatewayResult(
+                content=content,
+                provider=resolved.value,
+                model_name=_model_name(settings, mode_name),
+                fallback_used=False,
+            )
+        except Exception as exc:
+            allow_fallback = settings.llm_fallback_to_mock
+            if mode == "mock":
+                raise
+            if allow_fallback and (
+                is_llm_quota_error(exc)
+                or mode in ("gemini", "openrouter", "openai", "local")
+            ):
+                mock = MockProviderClient(
+                    fallback_reason=(
+                        f"Mock extraction used because {mode} LLM failed "
+                        f"({type(exc).__name__}: {str(exc)[:180]}). "
+                        "Pipeline completed for process testing."
+                    )
+                )
+                content = await mock.complete(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=max_tokens,
+                )
+                return GatewayResult(
+                    content=content,
+                    provider=mock.provider.value if mock.provider else "mock",
+                    model_name="mock",
+                    fallback_used=True,
+                )
+            raise
+
     def set_livekit_inference_mode(
         self,
         primary: str,

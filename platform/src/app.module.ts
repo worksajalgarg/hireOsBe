@@ -10,6 +10,7 @@ import { UsersModule } from "./users/users.module";
 import { AuditModule } from "./audit/audit.module";
 import { RoleContextModule } from "./role-context/role-context.module";
 import { CandidatesModule } from "./candidates/candidates.module";
+import { ResumesModule } from "./resumes/resumes.module";
 import { WorkflowModule } from "./workflow/workflow.module";
 import { IntegrationsModule } from "./integrations/integrations.module";
 import { InterviewsModule } from "./interviews/interviews.module";
@@ -34,6 +35,7 @@ import { PromptsModule } from "./prompts/prompts.module";
     AuditModule,
     RoleContextModule,
     CandidatesModule,
+    ResumesModule,
     WorkflowModule,
     IntegrationsModule,
     InterviewsModule,

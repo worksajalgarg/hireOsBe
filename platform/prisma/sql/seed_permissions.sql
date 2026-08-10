@@ -10,5 +10,8 @@ INSERT INTO permissions (id, slug, module, description) VALUES
   (gen_random_uuid(), 'roles.write', 'roles', 'Create and edit custom tenant roles'),
   (gen_random_uuid(), 'audit.read', 'audit', 'View audit events'),
   (gen_random_uuid(), 'profile.read', 'profile', 'Read own profile'),
-  (gen_random_uuid(), 'profile.write', 'profile', 'Update own profile')
+  (gen_random_uuid(), 'profile.write', 'profile', 'Update own profile'),
+  (gen_random_uuid(), 'resumes.read', 'resumes', 'List and view resumes'),
+  (gen_random_uuid(), 'resumes.write', 'resumes', 'Upload, edit, and delete resumes'),
+  (gen_random_uuid(), 'resumes.extract', 'resumes', 'Run resume extraction pipeline')
 ON CONFLICT (slug) DO NOTHING;

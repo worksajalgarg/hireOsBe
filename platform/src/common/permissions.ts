@@ -10,10 +10,64 @@ export const PERMISSIONS = {
   AUDIT_READ: "audit.read",
   PROFILE_READ: "profile.read",
   PROFILE_WRITE: "profile.write",
+  RESUMES_READ: "resumes.read",
+  RESUMES_WRITE: "resumes.write",
+  RESUMES_EXTRACT: "resumes.extract",
   INTERVIEWS_MANAGE: "interviews.manage",
 } as const;
 
 export type PermissionSlug = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+export const PERMISSION_META: Record<
+  PermissionSlug,
+  { module: string; description: string }
+> = {
+  [PERMISSIONS.WORKSPACE_SETTINGS_READ]: {
+    module: "workspace",
+    description: "View workspace branding and policies",
+  },
+  [PERMISSIONS.WORKSPACE_SETTINGS_WRITE]: {
+    module: "workspace",
+    description: "Update workspace branding and policies",
+  },
+  [PERMISSIONS.MEMBERS_READ]: { module: "members", description: "List tenant members" },
+  [PERMISSIONS.MEMBERS_INVITE]: {
+    module: "members",
+    description: "Invite members to the tenant",
+  },
+  [PERMISSIONS.MEMBERS_ROLE_WRITE]: {
+    module: "members",
+    description: "Change member roles",
+  },
+  [PERMISSIONS.MEMBERS_REMOVE]: {
+    module: "members",
+    description: "Remove members from the tenant",
+  },
+  [PERMISSIONS.ROLES_READ]: {
+    module: "roles",
+    description: "View roles and permission matrix",
+  },
+  [PERMISSIONS.ROLES_WRITE]: {
+    module: "roles",
+    description: "Create and edit custom tenant roles",
+  },
+  [PERMISSIONS.AUDIT_READ]: { module: "audit", description: "View audit events" },
+  [PERMISSIONS.PROFILE_READ]: { module: "profile", description: "Read own profile" },
+  [PERMISSIONS.PROFILE_WRITE]: { module: "profile", description: "Update own profile" },
+  [PERMISSIONS.RESUMES_READ]: { module: "resumes", description: "List and view resumes" },
+  [PERMISSIONS.RESUMES_WRITE]: {
+    module: "resumes",
+    description: "Upload, edit, and delete resumes",
+  },
+  [PERMISSIONS.RESUMES_EXTRACT]: {
+    module: "resumes",
+    description: "Run resume extraction pipeline",
+  },
+  [PERMISSIONS.INTERVIEWS_MANAGE]: {
+    module: "interviews",
+    description: "Create and join AI voice interview sessions",
+  },
+};
 
 export const SYSTEM_ROLE_NAMES = {
   Admin: "Admin",
@@ -31,6 +85,9 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.ROLES_READ,
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
+    PERMISSIONS.RESUMES_READ,
+    PERMISSIONS.RESUMES_WRITE,
+    PERMISSIONS.RESUMES_EXTRACT,
     PERMISSIONS.INTERVIEWS_MANAGE,
   ],
   [SYSTEM_ROLE_NAMES.HiringManager]: [
@@ -39,6 +96,8 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<string, PermissionSlug[]> = {
     PERMISSIONS.ROLES_READ,
     PERMISSIONS.PROFILE_READ,
     PERMISSIONS.PROFILE_WRITE,
+    PERMISSIONS.RESUMES_READ,
+    PERMISSIONS.RESUMES_EXTRACT,
     PERMISSIONS.INTERVIEWS_MANAGE,
   ],
   [SYSTEM_ROLE_NAMES.Auditor]: [

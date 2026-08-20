@@ -7,6 +7,12 @@ Backend for the Enterprise AI Hiring Platform — split out from a former monore
 
 See the companion [hireOsFe](../hireOsFe) repo for the Next.js frontend that talks to `platform/` over HTTP, and `docs/` in this repo for the threat model, architecture decision records, and founder/business-owned dependency trackers.
 
+## AI Server planning docs
+
+- [AI Server design and validation basis](docs/ai-server-design-validation.md) — product-level AI Server design covering generic capabilities, boundaries, selected technical choices, and validation path.
+- [AI Server Phase 1 readonly query spec](docs/ai-server-phase-1-readonly-query-spec.md) — product contract for generic readonly query capability, object resolution, evidence answers, and action previews.
+- [AI Server execution implementation plan](docs/ai-server-execution-implementation-plan.md) — selected implementation approach and execution task plan for Agent Command, Platform Read/Action APIs, RAG retrieval, and confirmation flow.
+
 ## Quickstart
 
 ```bash
